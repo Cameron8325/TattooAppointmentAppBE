@@ -1,23 +1,42 @@
 from rest_framework import serializers
-from .models import User, Service, Appointment
+from .models import User, Service, Appointment, ClientProfile
 
 class UserSerializer(serializers.ModelSerializer):
+    """
+    Serializer for User model.
+    """
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'is_artist']
 
+class ClientProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer for ClientProfile model.
+    """
+    artist = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+
+    class Meta:
+        model = ClientProfile
+        fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'artist']
+
 class ServiceSerializer(serializers.ModelSerializer):
-    artist = serializers.StringRelatedField(read_only=True)
+    """
+    Serializer for Service model.
+    """
+    artist = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
 
     class Meta:
         model = Service
         fields = ['id', 'name', 'description', 'price', 'artist']
 
 class AppointmentSerializer(serializers.ModelSerializer):
-    client = serializers.StringRelatedField(read_only=True)
-    artist = serializers.StringRelatedField(read_only=True)
-    service = ServiceSerializer(read_only=True)
+    """
+    Serializer for Appointment model.
+    """
+    client = serializers.PrimaryKeyRelatedField(queryset=ClientProfile.objects.all())
+    artist = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())
 
     class Meta:
         model = Appointment
-        fields = ['id', 'client', 'artist', 'service', 'date', 'time', 'status']
+        fields = ['id', 'client', 'artist', 'service', 'date', 'time', 'status', 'notes']

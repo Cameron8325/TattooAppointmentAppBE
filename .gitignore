@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.sqlite3
+
+# Django specific
+*.log
+db.sqlite3
+media/
+staticfiles/
+.env
+
+# Virtual environment
+venv/
+env/
+*.egg-info/
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test coverage
+.coverage
+.coverage.*
+
+# Node modules (if using npm/yarn for front-end builds)
+node_modules/
+npm-debug.log
+yarn-error.log
