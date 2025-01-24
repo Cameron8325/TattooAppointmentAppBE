@@ -63,7 +63,7 @@ class Appointment(models.Model):
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
-        default='pending'
+        default='confirmed'
     )
     notes = models.TextField(
         null=True,
