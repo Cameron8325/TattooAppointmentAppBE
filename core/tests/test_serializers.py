@@ -1,12 +1,14 @@
 from django.test import TestCase
-from core.models import User, ClientProfile, Service, Appointment
+from core.models import User, ClientProfile, Service, Appointment, Notifications
 from core.serializers import (
     UserSerializer,
     ClientProfileSerializer,
     ServiceSerializer,
     AppointmentSerializer,
+    NotificationSerializer
 )
 from datetime import date, time
+from django.utils.timezone import localtime
 
 class UserSerializerTest(TestCase):
     """
@@ -189,3 +191,63 @@ class AppointmentSerializerTest(TestCase):
         self.assertTrue(serializer.is_valid())
         appointment = serializer.save()
         self.assertEqual(appointment.artist, self.artist)
+
+class NotificationSerializerTest(TestCase):
+    """
+    Test the NotificationSerializer to ensure correct serialization and deserialization.
+    """
+
+    def setUp(self):
+        """
+        Set up test data for notification tests.
+        """
+        self.employee = User.objects.create_user(
+            username='testemployee', password='testpass', is_artist=False
+        )
+        self.notification = Notifications.objects.create(
+            employee=self.employee,
+            action='Requested schedule change',
+            status='pending'
+        )
+
+    def test_notification_serialization(self):
+        """Test that the notification model serializes correctly."""
+        serializer = NotificationSerializer(instance=self.notification)
+        expected_data = {
+            'id': self.notification.id,
+            'employee': self.employee.id,
+            'action': 'Requested schedule change',
+            'timestamp': localtime(self.notification.timestamp).isoformat(),  # Normalize to Eastern Time
+            'status': 'pending',
+        }
+        self.assertEqual(serializer.data, expected_data)
+
+
+    def test_notification_deserialization(self):
+        """
+        Test that notification data deserializes and validates correctly.
+        """
+        data = {
+            'employee': self.employee.id,
+            'action': 'Approved schedule change',
+            'status': 'approved',
+        }
+        serializer = NotificationSerializer(data=data)
+        self.assertTrue(serializer.is_valid())
+        notification = serializer.save()
+        self.assertEqual(notification.action, 'Approved schedule change')
+        self.assertEqual(notification.status, 'approved')
+        self.assertEqual(notification.employee, self.employee)
+
+    def test_invalid_status(self):
+        """
+        Test that invalid status raises a validation error.
+        """
+        data = {
+            'employee': self.employee.id,
+            'action': 'Invalid action',
+            'status': 'invalid_status',  # Invalid status
+        }
+        serializer = NotificationSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('status', serializer.errors)

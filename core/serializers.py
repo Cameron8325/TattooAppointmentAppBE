@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Service, Appointment, ClientProfile
+from .models import User, Service, Appointment, ClientProfile, Notifications
 
 class UserSerializer(serializers.ModelSerializer):
     """
@@ -40,3 +40,8 @@ class AppointmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Appointment
         fields = ['id', 'client', 'artist', 'service', 'date', 'time', 'status', 'notes']
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notifications
+        fields = ['id', 'employee', 'action', 'timestamp', 'status']

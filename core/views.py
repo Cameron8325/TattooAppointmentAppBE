@@ -1,16 +1,21 @@
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
-from .models import User, ClientProfile, Service, Appointment
+from .models import User, ClientProfile, Service, Appointment, Notifications
 from .serializers import (
     UserSerializer,
     ClientProfileSerializer,
     ServiceSerializer,
     AppointmentSerializer,
+    NotificationSerializer
 )
 
 # User Views
-class UserListView(generics.ListCreateAPIView):
+class UserListView(ListCreateAPIView):
     """
     Handles listing all users and creating new users.
     """
@@ -19,7 +24,7 @@ class UserListView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
 
-class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+class UserDetailView(RetrieveUpdateDestroyAPIView):
     """
     Handles retrieving, updating, or deleting a specific user.
     """
@@ -29,7 +34,7 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 # Client Profile Views
-class ClientProfileListView(generics.ListCreateAPIView):
+class ClientProfileListView(ListCreateAPIView):
     """
     Handles listing and creating client profiles. Only authenticated artists can create profiles.
     """
@@ -46,7 +51,7 @@ class ClientProfileListView(generics.ListCreateAPIView):
         serializer.save()
 
 
-class ClientProfileDetailView(generics.RetrieveUpdateDestroyAPIView):
+class ClientProfileDetailView(RetrieveUpdateDestroyAPIView):
     """
     Handles retrieving, updating, or deleting a specific client profile.
     """
@@ -56,7 +61,7 @@ class ClientProfileDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 # Service Views
-class ServiceListView(generics.ListCreateAPIView):
+class ServiceListView(ListCreateAPIView):
     """
     Handles listing all services and creating new ones. Only authenticated users can create services.
     """
@@ -65,7 +70,7 @@ class ServiceListView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
 
-class ServiceDetailView(generics.RetrieveUpdateDestroyAPIView):
+class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     """
     Handles retrieving, updating, or deleting a specific service. Artists cannot modify services created by others.
     """
@@ -83,7 +88,7 @@ class ServiceDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 # Appointment Views
-class AppointmentListView(generics.ListCreateAPIView):
+class AppointmentListView(ListCreateAPIView):
     """
     Handles listing all appointments and creating new ones. Only authenticated users can create appointments.
     """
@@ -100,7 +105,7 @@ class AppointmentListView(generics.ListCreateAPIView):
         serializer.save()
 
 
-class AppointmentDetailView(generics.RetrieveUpdateDestroyAPIView):
+class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
     """
     Handles retrieving, updating, or deleting a specific appointment. Artists cannot modify appointments they don't own.
     """
@@ -115,3 +120,31 @@ class AppointmentDetailView(generics.RetrieveUpdateDestroyAPIView):
         if self.request.user != serializer.instance.artist:
             raise PermissionDenied("You cannot modify another artist's appointment.")
         serializer.save()
+
+#Notification Views
+class RecentActivityView(ListAPIView):
+    """
+    Handles fetching and listing all notifications by timestamps
+    """
+    queryset = Notifications.objects.all().order_by('-timestamp')
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAdminUser] #Only admins can access this view
+
+class ApproveNotificationView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        notification = get_object_or_404(Notifications, pk=pk)
+        notification.status = 'approved'
+        notification.save()
+        return Response({"message": "Notification approved successfully."}, status=200)
+
+class DeclineNotificationView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        notification = get_object_or_404(Notifications, pk=pk)  # Corrected model name
+        notification.status = 'denied'
+        notification.save()
+        return Response({"message": "Notification declined successfully."}, status=200)
+

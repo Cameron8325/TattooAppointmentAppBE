@@ -62,3 +62,24 @@ class UrlsTest(SimpleTestCase):
         """
         url = reverse('appointment-detail', kwargs={'pk': 1})
         self.assertEqual(resolve(url).func.view_class, views.AppointmentDetailView)
+
+    def test_recent_activity_url(self):
+        """
+        Test the recent activity URL resolves correctly.
+        """
+        url = reverse('recent-activity')
+        self.assertEqual(resolve(url).func.view_class, views.RecentActivityView)
+
+    def test_approve_notification_url(self):
+        """
+        Test the approve notification URL resolves correctly.
+        """
+        url = reverse('approve-notification', kwargs={'pk': 1})
+        self.assertEqual(resolve(url).func.view_class, views.ApproveNotificationView)
+
+    def test_decline_notification_url(self):
+        """
+        Test the decline notification URL resolves correctly.
+        """
+        url = reverse('decline-notification', kwargs={'pk': 1})
+        self.assertEqual(resolve(url).func.view_class, views.DeclineNotificationView)

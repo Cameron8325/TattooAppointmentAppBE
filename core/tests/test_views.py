@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from core.models import User, ClientProfile, Service, Appointment
+from core.models import User, ClientProfile, Service, Appointment, Notifications
 from datetime import date, time
 
 
@@ -131,3 +131,59 @@ class AppointmentViewTest(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['notes'], 'Forearm tattoo.')
+
+class NotificationViewTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        # Create an admin user and authenticate
+        self.admin_user = User.objects.create_superuser(
+            username='admin', password='adminpass', is_artist=False
+        )
+        self.client.login(username='admin', password='adminpass')
+
+        # Create test notifications
+        self.notification1 = Notifications.objects.create(
+            employee=self.admin_user,
+            action="Requested schedule change",
+            status="pending"
+        )
+        self.notification2 = Notifications.objects.create(
+            employee=self.admin_user,
+            action="Canceled appointment",
+            status="pending"
+        )
+
+    def test_recent_activity_view(self):
+        """Test fetching recent notifications."""
+        response = self.client.get('/api/recent-activity/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data[0]['action'], "Requested schedule change")
+
+    def test_approve_notification_view(self):
+        """Test approving a notification."""
+        response = self.client.post(f'/api/recent-activity/{self.notification1.id}/approve/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.notification1.refresh_from_db()
+        self.assertEqual(self.notification1.status, "approved")
+
+    def test_decline_notification_view(self):
+        """Test declining a notification."""
+        response = self.client.post(f'/api/recent-activity/{self.notification2.id}/decline/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.notification2.refresh_from_db()
+        self.assertEqual(self.notification2.status, "denied")
+
+    def test_unauthorized_access(self):
+        """Test that non-admin users cannot access the views."""
+        non_admin_user = User.objects.create_user(
+            username='testuser', password='testpass', is_artist=False
+        )
+        self.client.login(username='testuser', password='testpass')
+
+        response = self.client.get('/api/recent-activity/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.post(f'/api/recent-activity/{self.notification1.id}/approve/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
