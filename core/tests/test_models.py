@@ -1,6 +1,7 @@
 from django.test import TestCase
-from core.models import User, ClientProfile, Service, Appointment
+from core.models import User, ClientProfile, Service, Appointment, Notifications
 from datetime import date, time
+from django.core.exceptions import ValidationError
 
 class UserModelTest(TestCase):
 
@@ -113,4 +114,46 @@ class AppointmentModelTest(TestCase):
         self.assertEqual(
             str(self.appointment),
             f"Appointment for {self.client} with {self.artist} on {self.appointment.date}"
+        )
+
+class NotificationsModelTest(TestCase):
+    
+    def setUp(self):
+        self.employee = User.objects.create_user(username='testemployee', password='testpass', is_artist=False)
+        self.notification = Notifications.objects.create(
+            employee=self.employee,
+            action='Requested schedule change',
+            status='pending'
+        )
+
+    def test_notification_creation(self):
+        """Test that a notification is created successfully."""
+        self.assertEqual(self.notification.employee, self.employee)
+        self.assertEqual(self.notification.action, 'Requested schedule change')
+        self.assertEqual(self.notification.status, 'pending')
+        self.assertIsNotNone(self.notification.timestamp)  # Ensure the timestamp is auto-generated
+
+    def test_notification_default_status(self):
+        """Test that the default status of a notification is 'pending'."""
+        self.assertEqual(self.notification.status, 'pending')
+
+    def test_notification_status_choices(self):
+        """Test that status accepts only valid choices."""
+        valid_choices = ['pending', 'approved', 'denied']
+        for choice in valid_choices:
+            self.notification.status = choice
+            self.notification.full_clean()  # Trigger validation
+            self.notification.save()
+            self.assertEqual(self.notification.status, choice)
+
+        with self.assertRaises(ValidationError):
+            self.notification.status = 'invalid_choice'
+            self.notification.full_clean()  # Trigger validation
+
+
+    def test_notification_string_representation(self):
+        """Test the string representation of the notification."""
+        self.assertEqual(
+            str(self.notification),
+            f"Notification from {self.notification.employee} - {self.notification.action} ({self.notification.status})"
         )

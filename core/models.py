@@ -9,7 +9,7 @@ class User(AbstractUser):
 class ClientProfile(models.Model):
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    email = models.EmailField()
+    email = models.EmailField(unique=True)
     phone = models.CharField(max_length=15)
     artist = models.ForeignKey(
         'User',
@@ -72,3 +72,30 @@ class Appointment(models.Model):
 
     def __str__(self):
         return f"Appointment for {self.client} with {self.artist} on {self.date}"
+
+        
+class Notifications(models.Model):
+    employee = models.ForeignKey(
+        'User',
+        on_delete=models.CASCADE,
+        related_name='notifications'
+    )
+    action = models.CharField(
+        max_length=100
+    )
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    NOTI_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('denied', 'Denied')
+    ]
+
+    status = models.CharField(
+        max_length=10,
+        choices=NOTI_STATUS_CHOICES,
+        default='pending'
+    )
+
+    def __str__(self):
+        return f"Notification from {self.employee} - {self.action} ({self.status})"
