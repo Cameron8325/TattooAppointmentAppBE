@@ -41,6 +41,12 @@ class AppointmentSerializer(serializers.ModelSerializer):
         model = Appointment
         fields = ['id', 'client', 'artist', 'service', 'date', 'time', 'status', 'notes']
 
+class AppointmentOverviewSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    completed = serializers.IntegerField()
+    pending = serializers.IntegerField()
+    canceled = serializers.IntegerField()
+
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notifications

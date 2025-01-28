@@ -22,6 +22,7 @@ urlpatterns = [
     path('services/<int:pk>/', ServiceDetailView.as_view(), name='service-detail'),
     path('appointments/', AppointmentListView.as_view(), name='appointment-list'),
     path('appointments/<int:pk>/', AppointmentDetailView.as_view(), name='appointment-detail'),
+    path('appointments/overview/', AppointmentOverviewView.as_view(), name='appointment-overview'),
     path('recent-activity/', RecentActivityView.as_view(), name='recent-activity'),
     path('recent-activity/<int:pk>/approve/', ApproveNotificationView.as_view(), name='approve-notification'),
     path('recent-activity/<int:pk>/decline/', DeclineNotificationView.as_view(), name='decline-notification'),

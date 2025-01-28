@@ -121,6 +121,34 @@ class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
             raise PermissionDenied("You cannot modify another artist's appointment.")
         serializer.save()
 
+
+class AppointmentOverviewView(APIView):
+    """
+    Returns an overview of appointment data: total, completed, pending, canceled.
+    Supports filtering by date range.
+    """
+    def get(self, request):
+        # Handle date filters (optional)
+        filter_param = request.query_params.get('filter', None)
+        queryset = Appointment.objects.all()
+
+        if filter_param == 'today':
+            queryset = queryset.filter(date=date.today())
+        elif filter_param == 'this_week':
+            start_of_week = date.today() - timedelta(days=date.today().weekday())
+            end_of_week = start_of_week + timedelta(days=6)
+            queryset = queryset.filter(date__range=[start_of_week, end_of_week])
+
+        # Aggregate data
+        data = {
+            'total': queryset.count(),
+            'completed': queryset.filter(status='completed').count(),
+            'pending': queryset.filter(status='pending').count(),
+            'canceled': queryset.filter(status='canceled').count(),
+        }
+
+        return Response(data) 
+
 #Notification Views
 class RecentActivityView(ListAPIView):
     """
