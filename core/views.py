@@ -1,10 +1,13 @@
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from datetime import date, timedelta
 from .models import User, ClientProfile, Service, Appointment, Notifications
 from .serializers import (
     UserSerializer,
@@ -14,7 +17,70 @@ from .serializers import (
     NotificationSerializer
 )
 
-# User Views
+# Authentication Views
+class RegisterView(generics.CreateAPIView):
+    """
+    Handles user registration.
+    """
+    queryset = User.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = UserSerializer
+
+class LoginView(APIView):
+    """
+    Handles user login and returns JWT tokens in HTTP-only cookies.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = request.data.get("username")
+        password = request.data.get("password")
+
+        user = authenticate(username=username, password=password)
+        if user:
+            refresh = RefreshToken.for_user(user)
+            response = Response({"message": "Login successful"})
+            response.set_cookie(
+                key="access_token",
+                value=str(refresh.access_token),
+                httponly=True,  
+                samesite="Lax",
+                secure=False,  
+            )
+            response.set_cookie(
+                key="refresh_token",
+                value=str(refresh),
+                httponly=True,
+                samesite="Lax",
+                secure=False,  
+            )
+            return response
+
+        return Response({"error": "Invalid Credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+class LogoutView(APIView):
+    """
+    Handles user logout by clearing authentication cookies.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        response = Response({"message": "Logged out"})
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+        return response
+
+class UserView(APIView):
+    """
+    Returns the current authenticated user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+# User Management Views
 class UserListView(ListCreateAPIView):
     """
     Handles listing all users and creating new users.
@@ -23,7 +89,6 @@ class UserListView(ListCreateAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
-
 class UserDetailView(RetrieveUpdateDestroyAPIView):
     """
     Handles retrieving, updating, or deleting a specific user.
@@ -31,7 +96,6 @@ class UserDetailView(RetrieveUpdateDestroyAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
-
 
 # Client Profile Views
 class ClientProfileListView(ListCreateAPIView):
@@ -50,7 +114,6 @@ class ClientProfileListView(ListCreateAPIView):
             raise PermissionDenied("Only artists can create client profiles.")
         serializer.save()
 
-
 class ClientProfileDetailView(RetrieveUpdateDestroyAPIView):
     """
     Handles retrieving, updating, or deleting a specific client profile.
@@ -59,138 +122,113 @@ class ClientProfileDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = ClientProfileSerializer
     permission_classes = [IsAuthenticated]
 
-
 # Service Views
 class ServiceListView(ListCreateAPIView):
     """
-    Handles listing all services and creating new ones. Only authenticated users can create services.
+    Handles listing all services and creating new ones.
     """
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
-
 
 class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     """
-    Handles retrieving, updating, or deleting a specific service. Artists cannot modify services created by others.
+    Handles retrieving, updating, or deleting a specific service.
     """
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
-
-    def perform_update(self, serializer):
-        """
-        Restrict updates to services owned by the authenticated artist.
-        """
-        if self.request.user != serializer.instance.artist:
-            raise PermissionDenied("You cannot modify another artist's service.")
-        serializer.save()
-
 
 # Appointment Views
 class AppointmentListView(ListCreateAPIView):
     """
-    Handles listing all appointments and creating new ones. Only authenticated users can create appointments.
+    Handles listing all appointments and creating new ones.
     """
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        """
-        Restrict creation of appointments to authenticated users.
-        """
-        if not self.request.user.is_authenticated:
-            raise PermissionDenied("You must be logged in to create appointments.")
         serializer.save()
-
 
 class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
     """
-    Handles retrieving, updating, or deleting a specific appointment. Artists cannot modify appointments they don't own.
+    Handles retrieving, updating, or deleting a specific appointment.
     """
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
     permission_classes = [IsAuthenticated]
 
-    def perform_update(self, serializer):
-        """
-        Restrict updates to appointments owned by the authenticated artist.
-        """
-        if self.request.user != serializer.instance.artist:
-            raise PermissionDenied("You cannot modify another artist's appointment.")
-        serializer.save()
-
-
 class AppointmentOverviewView(APIView):
     """
-    Returns an overview of appointment data: total, completed, pending, canceled.
-    Supports filtering by date range.
+    Returns an overview of appointment data.
     """
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
-        # Handle date filters (optional)
-        filter_param = request.query_params.get('filter', None)
+        filter_param = request.query_params.get("filter", None)
         queryset = Appointment.objects.all()
 
-        if filter_param == 'today':
+        if filter_param == "today":
             queryset = queryset.filter(date=date.today())
-        elif filter_param == 'this_week':
+        elif filter_param == "this_week":
             start_of_week = date.today() - timedelta(days=date.today().weekday())
             end_of_week = start_of_week + timedelta(days=6)
             queryset = queryset.filter(date__range=[start_of_week, end_of_week])
 
-        # Aggregate data
         data = {
-            'total': queryset.count(),
-            'completed': queryset.filter(status='completed').count(),
-            'pending': queryset.filter(status='pending').count(),
-            'canceled': queryset.filter(status='canceled').count(),
+            "total": queryset.count(),
+            "completed": queryset.filter(status="completed").count(),
+            "pending": queryset.filter(status="pending").count(),
+            "canceled": queryset.filter(status="canceled").count(),
         }
 
-        return Response(data) 
+        return Response(data)
 
 class RescheduleAppointmentView(APIView):
     """
     Allows users to reschedule appointments by updating the date and time.
     """
+    permission_classes = [IsAuthenticated]
+
     def patch(self, request, pk):
         appointment = get_object_or_404(Appointment, pk=pk)
         data = request.data
 
-        # Ensure that only date/time can be modified
-        allowed_updates = {key: data[key] for key in ['date', 'time'] if key in data}
-        
-        serializer = AppointmentSerializer(appointment, data=allowed_updates, partial=True)
+        allowed_updates = {key: data[key] for key in ["date", "time"] if key in data}
+        if not allowed_updates:
+            return Response({"error": "No valid fields provided for update."}, status=status.HTTP_400_BAD_REQUEST)
 
+        serializer = AppointmentSerializer(appointment, data=allowed_updates, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-#Notification Views
+# Notification Views
 class RecentActivityView(ListAPIView):
     """
-    Handles fetching and listing all notifications by timestamps
+    Handles fetching and listing all notifications by timestamps.
     """
-    queryset = Notifications.objects.all().order_by('-timestamp')
+    queryset = Notifications.objects.all().order_by("-timestamp")
     serializer_class = NotificationSerializer
-    permission_classes = [AllowAny] #Only admins can access this view
+    permission_classes = [IsAdminUser]  # Only admins can access this view
 
 class ApproveNotificationView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminUser]
 
     def post(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
-        notification.status = 'approved'
+        notification.status = "approved"
         notification.save()
         return Response({"message": "Notification approved successfully."}, status=200)
 
 class DeclineNotificationView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminUser]
 
     def post(self, request, pk):
-        notification = get_object_or_404(Notifications, pk=pk)  # Corrected model name
-        notification.status = 'denied'
+        notification = get_object_or_404(Notifications, pk=pk)
+        notification.status = "denied"
         notification.save()
         return Response({"message": "Notification declined successfully."}, status=200)
-

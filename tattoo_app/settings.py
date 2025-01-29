@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -45,6 +46,16 @@ CORS_ALLOW_HEADERS = [
 ]
 CORS_ALLOW_CREDENTIALS = True  # Allow cookies and authentication headers
 
+# TRUSTED ORIGINS (Required for CSRF Protection in Django 5+)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+]
+
+# CSRF Protection Settings (Required for Cookies)
+CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript from accessing the CSRF token
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = False  # Change to True in production (HTTPS required)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -55,7 +66,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'corsheaders',  # Added CORS support
+    'rest_framework_simplejwt',  # Added JWT support
+    'corsheaders',  # CORS support
     'core',
 ]
 
@@ -124,15 +136,28 @@ AUTH_PASSWORD_VALIDATORS = [
 
 AUTH_USER_MODEL = 'core.User'
 
-# Django REST Framework Settings
+# Django REST Framework & JWT Authentication Settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+}
+
+# Simple JWT Configuration (Using HTTP-Only Cookies)
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_COOKIE": "access_token",  # Name of the access token cookie
+    "AUTH_COOKIE_REFRESH": "refresh_token",  # Name of the refresh token cookie
+    "AUTH_COOKIE_HTTP_ONLY": True,  # Prevent JavaScript access to tokens
+    "AUTH_COOKIE_SECURE": False,  # Set to True in production (HTTPS required)
+    "AUTH_COOKIE_SAMESITE": "Lax",
 }
 
 # Internationalization

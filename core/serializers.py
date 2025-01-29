@@ -1,14 +1,44 @@
 from rest_framework import serializers
+from django.contrib.auth.models import User
 from .models import User, Service, Appointment, ClientProfile, Notifications
 
+# User Serializer
 class UserSerializer(serializers.ModelSerializer):
     """
-    Serializer for User model.
+    Serializer for the User model with password hashing.
     """
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
+
+    def create(self, validated_data):
+        """
+        Create a new user and hash the password.
+        """
+        user = User.objects.create_user(
+            username=validated_data["username"],
+            password=validated_data["password"],
+            email=validated_data.get("email", ""),
+        )
+        return user
+
+    def update(self, instance, validated_data):
+        """
+        Update user password securely.
+        """
+        instance.username = validated_data.get("username", instance.username)
+        instance.email = validated_data.get("email", instance.email)
+
+        if "password" in validated_data:
+            instance.set_password(validated_data["password"])
+
+        instance.save()
+        return instance
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'is_artist']
+        fields = ["id", "username", "email", "password"]
 
+
+# Client Profile Serializer
 class ClientProfileSerializer(serializers.ModelSerializer):
     """
     Serializer for ClientProfile model.
@@ -19,6 +49,7 @@ class ClientProfileSerializer(serializers.ModelSerializer):
         model = ClientProfile
         fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'artist']
 
+# Service Serializer
 class ServiceSerializer(serializers.ModelSerializer):
     """
     Serializer for Service model.
@@ -29,6 +60,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         model = Service
         fields = ['id', 'name', 'description', 'price', 'artist']
 
+# Appointment Serializer
 class AppointmentSerializer(serializers.ModelSerializer):
     """
     Serializer for Appointment model.
@@ -41,13 +73,23 @@ class AppointmentSerializer(serializers.ModelSerializer):
         model = Appointment
         fields = ['id', 'client', 'artist', 'service', 'date', 'time', 'status', 'notes']
 
+# Appointment Overview Serializer
 class AppointmentOverviewSerializer(serializers.Serializer):
     total = serializers.IntegerField()
     completed = serializers.IntegerField()
     pending = serializers.IntegerField()
     canceled = serializers.IntegerField()
 
+# Notification Serializer
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notifications
         fields = ['id', 'employee', 'action', 'timestamp', 'status']
+
+# Authentication Serializer for Login
+class LoginSerializer(serializers.Serializer):
+    """
+    Serializer for user login. Accepts username and password.
+    """
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
