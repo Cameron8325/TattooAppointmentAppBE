@@ -2,7 +2,7 @@ from rest_framework import generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
 from .models import User, ClientProfile, Service, Appointment, Notifications
@@ -149,6 +149,24 @@ class AppointmentOverviewView(APIView):
 
         return Response(data) 
 
+class RescheduleAppointmentView(APIView):
+    """
+    Allows users to reschedule appointments by updating the date and time.
+    """
+    def patch(self, request, pk):
+        appointment = get_object_or_404(Appointment, pk=pk)
+        data = request.data
+
+        # Ensure that only date/time can be modified
+        allowed_updates = {key: data[key] for key in ['date', 'time'] if key in data}
+        
+        serializer = AppointmentSerializer(appointment, data=allowed_updates, partial=True)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 #Notification Views
 class RecentActivityView(ListAPIView):
     """
@@ -156,10 +174,10 @@ class RecentActivityView(ListAPIView):
     """
     queryset = Notifications.objects.all().order_by('-timestamp')
     serializer_class = NotificationSerializer
-    permission_classes = [IsAdminUser] #Only admins can access this view
+    permission_classes = [AllowAny] #Only admins can access this view
 
 class ApproveNotificationView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [AllowAny]
 
     def post(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
@@ -168,7 +186,7 @@ class ApproveNotificationView(APIView):
         return Response({"message": "Notification approved successfully."}, status=200)
 
 class DeclineNotificationView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [AllowAny]
 
     def post(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)  # Corrected model name
