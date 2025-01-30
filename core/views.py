@@ -5,8 +5,8 @@ from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpda
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import authenticate
+from django.middleware.csrf import get_token
+from django.contrib.auth import authenticate, login, logout
 from datetime import date, timedelta
 from .models import User, ClientProfile, Service, Appointment, Notifications
 from .serializers import (
@@ -27,9 +27,6 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = UserSerializer
 
 class LoginView(APIView):
-    """
-    Handles user login and returns JWT tokens in HTTP-only cookies.
-    """
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -38,47 +35,36 @@ class LoginView(APIView):
 
         user = authenticate(username=username, password=password)
         if user:
-            refresh = RefreshToken.for_user(user)
-            response = Response({"message": "Login successful"})
-            response.set_cookie(
-                key="access_token",
-                value=str(refresh.access_token),
-                httponly=True,  
-                samesite="Lax",
-                secure=False,  
-            )
-            response.set_cookie(
-                key="refresh_token",
-                value=str(refresh),
-                httponly=True,
-                samesite="Lax",
-                secure=False,  
-            )
+            login(request, user)  # ✅ Log the user in using Django's session authentication
+            response = Response({
+                "message": "Login successful",
+                "user": {"id": user.id, "username": user.username}
+            }, status=status.HTTP_200_OK)
+            response.set_cookie("csrftoken", get_token(request), httponly=False)  # ✅ Ensure CSRF token is set
             return response
 
         return Response({"error": "Invalid Credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
+
+
 class LogoutView(APIView):
     """
-    Handles user logout by clearing authentication cookies.
+    Handles user logout by clearing the session.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        response = Response({"message": "Logged out"})
-        response.delete_cookie("access_token")
-        response.delete_cookie("refresh_token")
-        return response
+        logout(request)  # ✅ Correctly placed logout
+        return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
+
 
 class UserView(APIView):
-    """
-    Returns the current authenticated user.
-    """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # ✅ Ensures only authenticated users can access
 
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+
 
 # User Management Views
 class UserListView(ListCreateAPIView):

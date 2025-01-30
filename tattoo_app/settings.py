@@ -51,10 +51,14 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
 ]
 
-# CSRF Protection Settings (Required for Cookies)
+# CSRF & SESSION COOKIE SETTINGS FOR CROSS-ORIGIN REQUESTS
 CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript from accessing the CSRF token
-CSRF_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SECURE = False  # Change to True in production (HTTPS required)
+CSRF_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SECURE = True  # Required for SameSite=None
+
+SESSION_COOKIE_SAMESITE = "None"  # Allow session cookies in cross-origin requests
+SESSION_COOKIE_SECURE = True  # Required for SameSite=None
+SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript from accessing the session cookie
 
 # Application definition
 
@@ -62,12 +66,11 @@ INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    'django.contrib.sessions',
+    'django.contrib.sessions',  # ✅ Sessions are required for session-based auth
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'rest_framework_simplejwt',  # Added JWT support
-    'corsheaders',  # CORS support
+    'corsheaders',
     'core',
 ]
 
@@ -136,28 +139,15 @@ AUTH_PASSWORD_VALIDATORS = [
 
 AUTH_USER_MODEL = 'core.User'
 
-# Django REST Framework & JWT Authentication Settings
+# Django REST Framework Settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',  # ✅ Use session authentication
+        'rest_framework.authentication.BasicAuthentication',  # Optional: For API testing
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-}
-
-# Simple JWT Configuration (Using HTTP-Only Cookies)
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "AUTH_COOKIE": "access_token",  # Name of the access token cookie
-    "AUTH_COOKIE_REFRESH": "refresh_token",  # Name of the refresh token cookie
-    "AUTH_COOKIE_HTTP_ONLY": True,  # Prevent JavaScript access to tokens
-    "AUTH_COOKIE_SECURE": False,  # Set to True in production (HTTPS required)
-    "AUTH_COOKIE_SAMESITE": "Lax",
 }
 
 # Internationalization
