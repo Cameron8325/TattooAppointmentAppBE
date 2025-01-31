@@ -43,6 +43,7 @@ CORS_ALLOW_HEADERS = [
     "authorization",
     "content-type",
     "x-requested-with",
+    "X-CSRFToken",
 ]
 CORS_ALLOW_CREDENTIALS = True  # Allow cookies and authentication headers
 
@@ -52,7 +53,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # CSRF & SESSION COOKIE SETTINGS FOR CROSS-ORIGIN REQUESTS
-CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript from accessing the CSRF token
+CSRF_COOKIE_HTTPONLY = False  # Prevent JavaScript from accessing the CSRF token
 CSRF_COOKIE_SAMESITE = "None"
 CSRF_COOKIE_SECURE = True  # Required for SameSite=None
 

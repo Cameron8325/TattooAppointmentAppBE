@@ -5,7 +5,7 @@ from core.views import (
     ClientProfileListView, ClientProfileDetailView,
     ServiceListView, ServiceDetailView,
     AppointmentListView, AppointmentDetailView, AppointmentOverviewView, RescheduleAppointmentView,
-    RecentActivityView, ApproveNotificationView, DeclineNotificationView,
+    RecentActivityView, ApproveNotificationView, DeclineNotificationView, CSRFTokenView
 )
 
 urlpatterns = [
@@ -14,6 +14,7 @@ urlpatterns = [
     path("login/", LoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("user/", UserView.as_view(), name="user"),
+    path("csrf/", CSRFTokenView.as_view(), name="csrf-token"),
 
     # User Management
     path("users/", UserListView.as_view(), name="user-list"),

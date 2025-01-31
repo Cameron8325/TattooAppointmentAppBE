@@ -45,17 +45,21 @@ class LoginView(APIView):
 
         return Response({"error": "Invalid Credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
+class CSRFTokenView(APIView):
+    def get(self, request):
+        return Response({"csrfToken": get_token(request)})
 
 
 class LogoutView(APIView):
-    """
-    Handles user logout by clearing the session.
-    """
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
-        logout(request)  # ✅ Correctly placed logout
-        return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
+        if request.user.is_authenticated:
+            logout(request)
+            response = Response({"message": "Logged out"}, status=status.HTTP_200_OK)
+            response.delete_cookie("sessionid")  # Ensure the session cookie is removed
+            response.delete_cookie("csrftoken")  # Remove CSRF token if needed
+            return response
+        return Response({"error": "User not logged in"}, status=status.HTTP_401_UNAUTHORIZED)
+
 
 
 class UserView(APIView):

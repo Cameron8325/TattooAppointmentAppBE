@@ -3,7 +3,11 @@ from django.contrib.auth.models import AbstractUser
 
 # User model for authentication and artist designation
 class User(AbstractUser):
-    is_artist = models.BooleanField(default=True)
+    ROLE_CHOICES = [
+        ("admin", "Admin"),  # Manager/Superuser
+        ("employee", "Employee"),
+    ]
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default="employee")
 
 # ClientProfile model for storing client-specific details
 class ClientProfile(models.Model):
