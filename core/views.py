@@ -6,9 +6,9 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
 from django.middleware.csrf import get_token
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, get_user_model
 from datetime import date, timedelta
-from .models import User, ClientProfile, Service, Appointment, Notifications
+from .models import ClientProfile, Service, Appointment, Notifications
 from .serializers import (
     UserSerializer,
     ClientProfileSerializer,
@@ -17,7 +17,10 @@ from .serializers import (
     NotificationSerializer
 )
 
-# Authentication Views
+# ✅ Get the custom user model
+User = get_user_model()
+
+# 🔹 Authentication Views
 class RegisterView(generics.CreateAPIView):
     """
     Handles user registration.
@@ -27,50 +30,63 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = UserSerializer
 
 class LoginView(APIView):
+    """
+    Handles user login.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
 
+        print(f"🚀 Attempting login for: {username}")  # Debugging print
+
         user = authenticate(username=username, password=password)
+
         if user:
-            login(request, user)  # ✅ Log the user in using Django's session authentication
+            print(f"✅ Authentication successful for: {username}")  # Debugging print
+            login(request, user)
             response = Response({
                 "message": "Login successful",
-                "user": {"id": user.id, "username": user.username}
+                "user": {"id": user.id, "username": user.username, "role": user.role}
             }, status=status.HTTP_200_OK)
-            response.set_cookie("csrftoken", get_token(request), httponly=False)  # ✅ Ensure CSRF token is set
+            response.set_cookie("csrftoken", get_token(request), httponly=False)  # Ensure CSRF token is set
             return response
 
+        print(f"❌ Authentication failed for: {username}")  # Debugging print
         return Response({"error": "Invalid Credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
 class CSRFTokenView(APIView):
+    """
+    Provides CSRF token.
+    """
     def get(self, request):
         return Response({"csrfToken": get_token(request)})
 
-
 class LogoutView(APIView):
+    """
+    Handles user logout.
+    """
     def post(self, request):
         if request.user.is_authenticated:
             logout(request)
             response = Response({"message": "Logged out"}, status=status.HTTP_200_OK)
-            response.delete_cookie("sessionid")  # Ensure the session cookie is removed
+            response.delete_cookie("sessionid")  # Ensure session cookie is removed
             response.delete_cookie("csrftoken")  # Remove CSRF token if needed
             return response
         return Response({"error": "User not logged in"}, status=status.HTTP_401_UNAUTHORIZED)
 
-
-
 class UserView(APIView):
-    permission_classes = [IsAuthenticated]  # ✅ Ensures only authenticated users can access
+    """
+    Returns user details for authenticated users.
+    """
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
 
-
-# User Management Views
+# 🔹 User Management Views
 class UserListView(ListCreateAPIView):
     """
     Handles listing all users and creating new users.
@@ -87,10 +103,10 @@ class UserDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
-# Client Profile Views
+# 🔹 Client Profile Views
 class ClientProfileListView(ListCreateAPIView):
     """
-    Handles listing and creating client profiles. Only authenticated artists can create profiles.
+    Handles listing and creating client profiles. Only artists can create profiles.
     """
     queryset = ClientProfile.objects.all()
     serializer_class = ClientProfileSerializer
@@ -112,7 +128,7 @@ class ClientProfileDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = ClientProfileSerializer
     permission_classes = [IsAuthenticated]
 
-# Service Views
+# 🔹 Service Views
 class ServiceListView(ListCreateAPIView):
     """
     Handles listing all services and creating new ones.
@@ -129,7 +145,7 @@ class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
 
-# Appointment Views
+# 🔹 Appointment Views
 class AppointmentListView(ListCreateAPIView):
     """
     Handles listing all appointments and creating new ones.
@@ -196,7 +212,7 @@ class RescheduleAppointmentView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Notification Views
+# 🔹 Notification Views
 class RecentActivityView(ListAPIView):
     """
     Handles fetching and listing all notifications by timestamps.
@@ -206,6 +222,9 @@ class RecentActivityView(ListAPIView):
     permission_classes = [IsAdminUser]  # Only admins can access this view
 
 class ApproveNotificationView(APIView):
+    """
+    Allows an admin to approve a notification.
+    """
     permission_classes = [IsAdminUser]
 
     def post(self, request, pk):
@@ -215,6 +234,9 @@ class ApproveNotificationView(APIView):
         return Response({"message": "Notification approved successfully."}, status=200)
 
 class DeclineNotificationView(APIView):
+    """
+    Allows an admin to decline a notification.
+    """
     permission_classes = [IsAdminUser]
 
     def post(self, request, pk):
