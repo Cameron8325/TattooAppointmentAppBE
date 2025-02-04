@@ -67,8 +67,9 @@ class Appointment(models.Model):
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
-        default='confirmed'
+        default='pending'
     )
+    requires_approval = models.BooleanField(default=False)  # ✅ Tracks if approval is needed
     notes = models.TextField(
         null=True,
         blank=True
@@ -77,27 +78,40 @@ class Appointment(models.Model):
     def __str__(self):
         return f"Appointment for {self.client} with {self.artist} on {self.date}"
 
-        
+# Notification model for manager approvals
 class Notifications(models.Model):
+    APPOINTMENT_ACTIONS = [
+        ('created', 'Created Appointment'),
+        ('updated', 'Updated Appointment'),
+        ('canceled', 'Canceled Appointment'),
+        ('pending_approval', 'Pending Approval'),
+    ]
+
     employee = models.ForeignKey(
         'User',
         on_delete=models.CASCADE,
         related_name='notifications'
     )
     action = models.CharField(
-        max_length=100
+        max_length=20,
+        choices=APPOINTMENT_ACTIONS,
+        default='pending_approval'
+    )
+    appointment = models.ForeignKey(
+        'Appointment',
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        null=True,
+        blank=True
     )
     timestamp = models.DateTimeField(auto_now_add=True)
-
-    NOTI_STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('approved', 'Approved'),
-        ('denied', 'Denied')
-    ]
-
     status = models.CharField(
         max_length=10,
-        choices=NOTI_STATUS_CHOICES,
+        choices=[
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('denied', 'Denied'),
+        ],
         default='pending'
     )
 
