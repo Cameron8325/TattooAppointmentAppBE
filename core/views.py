@@ -145,7 +145,6 @@ class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
 
-# 🔹 Appointment Views
 class AppointmentListView(ListCreateAPIView):
     """
     Handles listing all appointments and creating new ones.
@@ -154,39 +153,22 @@ class AppointmentListView(ListCreateAPIView):
     serializer_class = AppointmentSerializer
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
+    def get_queryset(self):
         """
-        Ensures that:
-        1️⃣ Employees' appointments require manager approval.
-        2️⃣ Artists cannot be double-booked at the same time.
-        3️⃣ Managers receive notifications when an employee submits an appointment.
+        - Admins: See all appointments
+        - Employees: See their own pending/confirmed/canceled appointments only
+        - Artists: See their booked appointments
         """
-        artist = serializer.validated_data["artist"]
-        date = serializer.validated_data["date"]
-        time = serializer.validated_data["time"]
         user = self.request.user
 
-        # ✅ Prevent double-booking
-        conflict = Appointment.objects.filter(artist=artist, date=date, time=time).exists()
-        if conflict:
-            raise serializers.ValidationError("This artist is already booked at this time.")
+        if user.role == "admin":
+            return Appointment.objects.all()  # Admin sees everything
+        
+        if user.role == "employee":
+            return Appointment.objects.filter(client__artist=user)  # Employee sees own client appointments
 
-        # ✅ Employee-created appointments require approval
-        requires_approval = user.role == "employee"
-        status = "pending" if requires_approval else "confirmed"
+        return Appointment.objects.filter(artist=user)  # Artists see their own bookings
 
-        appointment = serializer.save(status=status, requires_approval=requires_approval)
-
-        # ✅ Notify Managers of Pending Approval
-        if requires_approval:
-            managers = User.objects.filter(role="admin")
-            for manager in managers:
-                Notifications.objects.create(
-                    employee=manager,
-                    appointment=appointment,
-                    action="pending_approval",
-                    status="pending"
-                )
 
 
 class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
@@ -225,7 +207,7 @@ class AppointmentOverviewView(APIView):
 
 class RescheduleAppointmentView(APIView):
     """
-    Allows users to reschedule appointments by updating the date and time.
+    Allows users to reschedule appointments while preventing double-booking.
     """
     permission_classes = [IsAuthenticated]
 
@@ -233,34 +215,41 @@ class RescheduleAppointmentView(APIView):
         appointment = get_object_or_404(Appointment, pk=pk)
         data = request.data
 
-        allowed_updates = {key: data[key] for key in ["date", "time"] if key in data}
-        if not allowed_updates:
-            return Response({"error": "No valid fields provided for update."}, status=status.HTTP_400_BAD_REQUEST)
+        new_date = data.get("date", appointment.date)
+        new_time = data.get("time", appointment.time)
 
-        serializer = AppointmentSerializer(appointment, data=allowed_updates, partial=True)
+        # ✅ Prevent double-booking
+        conflict = Appointment.objects.filter(
+            artist=appointment.artist, date=new_date, time=new_time
+        ).exclude(id=appointment.id).exists()
+
+        if conflict:
+            return Response({"error": "This artist is already booked at this time."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = AppointmentSerializer(appointment, data={"date": new_date, "time": new_time}, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 # 🔹 Notification Views
 class RecentActivityView(ListAPIView):
     """
-    Handles fetching and listing all notifications by timestamps.
+    Allows admins to see all notifications and employees to see their own requests.
     """
-    def get_queryset(self):
-        """
-        Admins see all notifications.
-        Employees only see their own requests.
-        """
-        user = self.request.user
-        if user.role == "admin":
-            return Notifications.objects.all().order_by("-timestamp")
-        return Notifications.objects.filter(employee=user).order_by("-timestamp")
-
     serializer_class = NotificationSerializer
-    permission_classes = [IsAdminUser]  # Only admins can access this view
+    permission_classes = [IsAuthenticated]  # Allow both admins and employees
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.role == "admin":
+            return Notifications.objects.all().order_by("-timestamp")  # Admins see all notifications
+
+        return Notifications.objects.filter(employee=user).order_by("-timestamp")  # Employees see their own
+
 
 class ApproveNotificationView(APIView):
     """

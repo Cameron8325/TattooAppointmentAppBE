@@ -65,13 +65,27 @@ class AppointmentSerializer(serializers.ModelSerializer):
     """
     Serializer for Appointment model.
     """
-    client = serializers.PrimaryKeyRelatedField(queryset=ClientProfile.objects.all())
-    artist = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
-    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())
+    client = ClientProfileSerializer(read_only=True)  # ✅ Show full client details
+    client_id = serializers.PrimaryKeyRelatedField(
+        queryset=ClientProfile.objects.all(), source="client", write_only=True
+    )  # ✅ Accepts only ID in requests
+
+    artist = UserSerializer(read_only=True)  # ✅ Show full artist details
+    artist_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source="artist", write_only=True
+    )  # ✅ Accepts only ID in requests
+
+    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())  # ✅ Keep service as an ID
+
+    requires_approval = serializers.BooleanField(read_only=True)  # ✅ Include approval flag
 
     class Meta:
         model = Appointment
-        fields = ['id', 'client', 'artist', 'service', 'date', 'time', 'status', 'notes']
+        fields = [
+            "id", "client", "client_id", "artist", "artist_id", "service", "date", "time",
+            "status", "notes", "requires_approval"
+        ]
+
 
 # Appointment Overview Serializer
 class AppointmentOverviewSerializer(serializers.Serializer):
