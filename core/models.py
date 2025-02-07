@@ -27,17 +27,20 @@ class ClientProfile(models.Model):
 
 # Service model for the types of services offered by artists
 class Service(models.Model):
-    name = models.CharField(max_length=100)
-    description = models.TextField()
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    artist = models.ForeignKey(
-        'User',
-        on_delete=models.CASCADE,
-        related_name='services'
-    )
+    SERVICE_CHOICES = [
+        ("service_1", "Service 1"),
+        ("service_2", "Service 2"),
+        ("service_3", "Service 3"),
+    ]
+    
+    name = models.CharField(max_length=100, choices=SERVICE_CHOICES, unique=True)
+    description = models.TextField(blank=True, null=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
     def __str__(self):
-        return self.name
+        return dict(self.SERVICE_CHOICES).get(self.name, "Unknown Service")
+
+
 
 # Appointment model for scheduling appointments
 class Appointment(models.Model):

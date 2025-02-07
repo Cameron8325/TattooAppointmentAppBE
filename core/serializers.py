@@ -51,14 +51,15 @@ class ClientProfileSerializer(serializers.ModelSerializer):
 
 # Service Serializer
 class ServiceSerializer(serializers.ModelSerializer):
-    """
-    Serializer for Service model.
-    """
-    artist = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    name_display = serializers.SerializerMethodField()
+
+    def get_name_display(self, obj):
+        return dict(Service.SERVICE_CHOICES).get(obj.name, "Unknown Service")
 
     class Meta:
         model = Service
-        fields = ['id', 'name', 'description', 'price', 'artist']
+        fields = ['id', 'name', 'name_display', 'description', 'price']
+
 
 # Appointment Serializer
 class AppointmentSerializer(serializers.ModelSerializer):
