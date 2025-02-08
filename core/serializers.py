@@ -51,10 +51,11 @@ class ClientProfileSerializer(serializers.ModelSerializer):
 
 # Service Serializer
 class ServiceSerializer(serializers.ModelSerializer):
-    name_display = serializers.SerializerMethodField()
+    name_display = serializers.CharField(source='get_name_display', read_only=True)  # ✅ Fix applied
 
-    def get_name_display(self, obj):
-        return dict(Service.SERVICE_CHOICES).get(obj.name, "Unknown Service")
+    class Meta:
+        model = Service
+        fields = ['id', 'name', 'name_display', 'description', 'price']
 
     class Meta:
         model = Service
