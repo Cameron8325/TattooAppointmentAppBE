@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from rest_framework.exceptions import PermissionDenied
 from django.middleware.csrf import get_token
 from django.contrib.auth import authenticate, login, logout, get_user_model
@@ -60,8 +62,15 @@ class CSRFTokenView(APIView):
     """
     Provides CSRF token.
     """
+    permission_classes = [AllowAny]  # ✅ Allow anyone to fetch the CSRF token
+
+    @method_decorator(csrf_exempt)  # ✅ Exempt this view from CSRF protection
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
     def get(self, request):
         return Response({"csrfToken": get_token(request)})
+
 
 class LogoutView(APIView):
     """
