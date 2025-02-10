@@ -67,19 +67,21 @@ class Appointment(models.Model):
     )
     date = models.DateField()
     time = models.TimeField()
+    price = models.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required, no default price
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
         default='pending'
     )
-    requires_approval = models.BooleanField(default=False)  # ✅ Tracks if approval is needed
+    requires_approval = models.BooleanField(default=False)
     notes = models.TextField(
         null=True,
         blank=True
-    )  # For small notes about the tattoo
+    )
 
     def __str__(self):
         return f"Appointment for {self.client} with {self.artist} on {self.date}"
+
 
 # Notification model for manager approvals
 class Notifications(models.Model):

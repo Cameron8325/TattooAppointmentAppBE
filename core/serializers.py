@@ -72,26 +72,35 @@ class AppointmentSerializer(serializers.ModelSerializer):
     """
     Serializer for Appointment model.
     """
-    client = ClientProfileSerializer(read_only=True)  # ✅ Show full client details
+    client = ClientProfileSerializer(read_only=True)  
     client_id = serializers.PrimaryKeyRelatedField(
         queryset=ClientProfile.objects.all(), source="client", write_only=True
-    )  # ✅ Accepts only ID in requests
-
-    artist = UserSerializer(read_only=True)  # ✅ Show full artist details
+    )  
+    artist = UserSerializer(read_only=True)  
     artist_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), source="artist", write_only=True
-    )  # ✅ Accepts only ID in requests
+    )  
+    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())  
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required field
 
-    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())  # ✅ Keep service as an ID
-
-    requires_approval = serializers.BooleanField(read_only=True)  # ✅ Include approval flag
+    requires_approval = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Appointment
         fields = [
             "id", "client", "client_id", "artist", "artist_id", "service", "date", "time",
-            "status", "notes", "requires_approval"
+            "price", "status", "notes", "requires_approval"
         ]
+
+    def validate_price(self, value):
+        """
+        Ensure price is always provided and is a positive number.
+        """
+        if value is None:
+            raise serializers.ValidationError("Price is required.")
+        if value < 0:
+            raise serializers.ValidationError("Price must be a positive number.")
+        return value
 
 
 # Appointment Overview Serializer
