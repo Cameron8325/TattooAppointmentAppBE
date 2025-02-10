@@ -33,9 +33,14 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+    full_name = serializers.SerializerMethodField()
+
+    def get_full_name(self, obj):  # ✅ Must match the field name
+        return f"{obj.first_name} {obj.last_name}".strip()
+
     class Meta:
         model = User
-        fields = ["id", "username", "email", "password", "role"]
+        fields = ["id", "username", "full_name", "email", "password", "role"]
 
 
 # Client Profile Serializer
