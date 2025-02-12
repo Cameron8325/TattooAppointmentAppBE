@@ -82,7 +82,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
     artist_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), source="artist", write_only=True
     )
-    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())
+    status = serializers.CharField(source='get_status_display', read_only=True)
+
+    service = serializers.StringRelatedField()
     price = serializers.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required field remains unchanged
 
     requires_approval = serializers.BooleanField(read_only=True)
