@@ -72,25 +72,35 @@ class AppointmentSerializer(serializers.ModelSerializer):
     """
     Serializer for Appointment model.
     """
-    client = ClientProfileSerializer(read_only=True)  
+    client = ClientProfileSerializer(read_only=True)
     client_id = serializers.PrimaryKeyRelatedField(
-        queryset=ClientProfile.objects.all(), source="client", write_only=True
-    )  
-    artist = UserSerializer(read_only=True)  
+        queryset=ClientProfile.objects.all(), source="client", write_only=True, required=False
+    )
+    new_client = ClientProfileSerializer(write_only=True, required=False)  # ✅ Allow new client data
+
+    artist = UserSerializer(read_only=True)
     artist_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), source="artist", write_only=True
-    )  
-    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())  
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required field
+    )
+    service = serializers.PrimaryKeyRelatedField(queryset=Service.objects.all())
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required field remains unchanged
 
     requires_approval = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Appointment
         fields = [
-            "id", "client", "client_id", "artist", "artist_id", "service", "date", "time",
+            "id", "client", "client_id", "new_client", "artist", "artist_id", "service", "date", "time",
             "price", "status", "notes", "requires_approval"
         ]
+
+    def validate(self, data):
+        """
+        Ensure that only one of `client_id` or `new_client` is provided.
+        """
+        if data.get("client_id") and data.get("new_client"):
+            raise serializers.ValidationError("Provide either 'client_id' or 'new_client', not both.")
+        return data
 
     def validate_price(self, value):
         """
@@ -101,6 +111,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError("Price must be a positive number.")
         return value
+
+    def create(self, validated_data):
+        """
+        Handle creating an appointment with a new client if necessary.
+        """
+        new_client_data = validated_data.pop("new_client", None)  # Extract new client data if provided
+        client = validated_data.pop("client", None)  # Extract existing client if provided
+
+        if new_client_data:
+            client = ClientProfile.objects.create(**new_client_data)  # ✅ Creates a new client
+
+        return Appointment.objects.create(client=client, **validated_data)
 
 
 # Appointment Overview Serializer

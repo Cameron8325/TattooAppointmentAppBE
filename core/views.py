@@ -123,11 +123,12 @@ class ClientProfileListView(ListCreateAPIView):
 
     def perform_create(self, serializer):
         """
-        Restrict creation of client profiles to artists.
+        Restrict creation of client profiles to employees and admins.
         """
-        if not self.request.user.is_artist:
-            raise PermissionDenied("Only artists can create client profiles.")
+        if self.request.user.role not in ["employee", "admin"]:  # Check for both roles
+            raise PermissionDenied("Only employees and admins can create client profiles.")
         serializer.save()
+
 
 class ClientProfileDetailView(RetrieveUpdateDestroyAPIView):
     """
@@ -160,23 +161,56 @@ class AppointmentListView(ListCreateAPIView):
     """
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # ✅ Ensure only authenticated users can create appointments
 
     def get_queryset(self):
         """
-        - Admins: See all appointments
-        - Employees: See their own pending/confirmed/canceled appointments only
-        - Artists: See their booked appointments
+        Restrict querysets based on user role:
+        - Admins see all appointments.
+        - Employees see appointments for clients they are assigned to.
+        - Artists see their own appointments.
         """
         user = self.request.user
 
         if user.role == "admin":
-            return Appointment.objects.all()  # Admin sees everything
-        
-        if user.role == "employee":
-            return Appointment.objects.filter(client__artist=user)  # Employee sees own client appointments
+            return Appointment.objects.all()  # ✅ Admins see everything
 
-        return Appointment.objects.filter(artist=user)  # Artists see their own bookings
+        if user.role == "employee":
+            return Appointment.objects.filter(client__artist=user)  # ✅ Employees see only their own clients' appointments
+
+        return Appointment.objects.filter(artist=user)  # ✅ Artists see their own bookings
+
+    def perform_create(self, serializer):
+        """
+        Ensure only valid users create appointments.
+        - Admins can create appointments for any artist.
+        - Employees can only create appointments for their assigned clients.
+        - If `new_client` data is provided, create the client first.
+        """
+        user = self.request.user
+        new_client_data = self.request.data.get("new_client")  # ✅ Extract new client data from request
+        artist_id = serializer.validated_data.get("artist_id")
+
+        # 🚀 Handle new client creation
+        if new_client_data:
+            new_client_serializer = ClientProfileSerializer(data=new_client_data)
+            if new_client_serializer.is_valid():
+                new_client = new_client_serializer.save()  # ✅ Create new client
+                serializer.validated_data["client"] = new_client
+            else:
+                raise serializers.ValidationError(new_client_serializer.errors)  # 🔴 Return validation errors if new client data is invalid
+
+        # 🚀 Role-Based Appointment Creation Logic
+        if user.role == "admin":
+            serializer.save()  # ✅ Admins can create appointments freely
+
+        elif user.role == "employee":
+            if artist_id and artist_id != user.id:
+                raise PermissionDenied("Employees can only create appointments for themselves.")  # 🔴 Restrict employees to their own bookings
+            serializer.save(artist=user)  # ✅ Employee is auto-assigned as the artist
+
+        else:
+            serializer.save(artist=user)  # ✅ Non-admin/non-employee users are auto-assigned as the artist
 
 
 
