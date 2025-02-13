@@ -48,11 +48,11 @@ class ClientProfileSerializer(serializers.ModelSerializer):
     """
     Serializer for ClientProfile model.
     """
-    artist = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    employee = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
 
     class Meta:
         model = ClientProfile
-        fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'artist']
+        fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'employee']
 
 # Service Serializer
 class ServiceSerializer(serializers.ModelSerializer):
@@ -76,23 +76,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
     client_id = serializers.PrimaryKeyRelatedField(
         queryset=ClientProfile.objects.all(), source="client", write_only=True, required=False
     )
-    new_client = ClientProfileSerializer(write_only=True, required=False)  # ✅ Allow new client data
+    new_client = ClientProfileSerializer(write_only=True, required=False)
 
-    artist = UserSerializer(read_only=True)
-    artist_id = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), source="artist", write_only=True
+    employee = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), required=True
     )
-    status = serializers.CharField(source='get_status_display', read_only=True)
-
-    service = serializers.StringRelatedField()
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required field remains unchanged
-
-    requires_approval = serializers.BooleanField(read_only=True)
+    service = serializers.SlugRelatedField(slug_field='name', queryset=Service.objects.all())
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)
 
     class Meta:
         model = Appointment
         fields = [
-            "id", "client", "client_id", "new_client", "artist", "artist_id", "service", "date", "time",
+            "id", "client", "client_id", "new_client", "employee", "service", "date", "time",
             "price", "status", "notes", "requires_approval"
         ]
 
@@ -100,32 +95,34 @@ class AppointmentSerializer(serializers.ModelSerializer):
         """
         Ensure that only one of `client_id` or `new_client` is provided.
         """
-        if data.get("client_id") and data.get("new_client"):
-            raise serializers.ValidationError("Provide either 'client_id' or 'new_client', not both.")
+        if data.get("client") and data.get("new_client"):
+            raise serializers.ValidationError({"error": "Provide either 'client_id' or 'new_client', not both."})
+
+        if not data.get("client") and not data.get("new_client"):
+            raise serializers.ValidationError({"client": "A client is required."})
+
         return data
 
-    def validate_price(self, value):
-        """
-        Ensure price is always provided and is a positive number.
-        """
-        if value is None:
-            raise serializers.ValidationError("Price is required.")
-        if value < 0:
-            raise serializers.ValidationError("Price must be a positive number.")
-        return value
-
     def create(self, validated_data):
-        """
-        Handle creating an appointment with a new client if necessary.
-        """
-        new_client_data = validated_data.pop("new_client", None)  # Extract new client data if provided
-        client = validated_data.pop("client", None)  # Extract existing client if provided
+        # Pop out the client and new_client data from the validated data.
+        client = validated_data.pop("client", None)
+        new_client_data = validated_data.pop("new_client", None)
 
-        if new_client_data:
-            client = ClientProfile.objects.create(**new_client_data)  # ✅ Creates a new client
+        # If no client was provided but new_client data exists, handle it here.
+        if client is None and new_client_data:
+            email = new_client_data.get("email")
+            # Check if a client with this email already exists.
+            client = ClientProfile.objects.filter(email=email).first()
+            if client is None:
+                client = ClientProfile.objects.create(**new_client_data)
+                print("✅ New Client Created:", client)
+            else:
+                print("⚠️ Existing Client Found:", client)
+
+        if client is None:
+            raise serializers.ValidationError({"client": "A client is required."})
 
         return Appointment.objects.create(client=client, **validated_data)
-
 
 # Appointment Overview Serializer
 class AppointmentOverviewSerializer(serializers.Serializer):

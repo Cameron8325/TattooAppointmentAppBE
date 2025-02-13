@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.middleware.csrf import get_token
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from datetime import date, timedelta
@@ -115,7 +115,7 @@ class UserDetailView(RetrieveUpdateDestroyAPIView):
 # 🔹 Client Profile Views
 class ClientProfileListView(ListCreateAPIView):
     """
-    Handles listing and creating client profiles. Only artists can create profiles.
+    Handles listing and creating client profiles. Only employees can create profiles.
     """
     queryset = ClientProfile.objects.all()
     serializer_class = ClientProfileSerializer
@@ -161,56 +161,19 @@ class AppointmentListView(ListCreateAPIView):
     """
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
-    permission_classes = [IsAuthenticated]  # ✅ Ensure only authenticated users can create appointments
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """
-        Restrict querysets based on user role:
-        - Admins see all appointments.
-        - Employees see appointments for clients they are assigned to.
-        - Artists see their own appointments.
-        """
         user = self.request.user
-
         if user.role == "admin":
-            return Appointment.objects.all()  # ✅ Admins see everything
-
+            return Appointment.objects.all()
         if user.role == "employee":
-            return Appointment.objects.filter(client__artist=user)  # ✅ Employees see only their own clients' appointments
-
-        return Appointment.objects.filter(artist=user)  # ✅ Artists see their own bookings
+            return Appointment.objects.filter(client__employee=user)
+        return Appointment.objects.filter(employee=user)
 
     def perform_create(self, serializer):
-        """
-        Ensure only valid users create appointments.
-        - Admins can create appointments for any artist.
-        - Employees can only create appointments for their assigned clients.
-        - If `new_client` data is provided, create the client first.
-        """
-        user = self.request.user
-        new_client_data = self.request.data.get("new_client")  # ✅ Extract new client data from request
-        artist_id = serializer.validated_data.get("artist_id")
-
-        # 🚀 Handle new client creation
-        if new_client_data:
-            new_client_serializer = ClientProfileSerializer(data=new_client_data)
-            if new_client_serializer.is_valid():
-                new_client = new_client_serializer.save()  # ✅ Create new client
-                serializer.validated_data["client"] = new_client
-            else:
-                raise serializers.ValidationError(new_client_serializer.errors)  # 🔴 Return validation errors if new client data is invalid
-
-        # 🚀 Role-Based Appointment Creation Logic
-        if user.role == "admin":
-            serializer.save()  # ✅ Admins can create appointments freely
-
-        elif user.role == "employee":
-            if artist_id and artist_id != user.id:
-                raise PermissionDenied("Employees can only create appointments for themselves.")  # 🔴 Restrict employees to their own bookings
-            serializer.save(artist=user)  # ✅ Employee is auto-assigned as the artist
-
-        else:
-            serializer.save(artist=user)  # ✅ Non-admin/non-employee users are auto-assigned as the artist
+        # Simply let the serializer handle client creation/lookup.
+        serializer.save()
 
 
 
@@ -263,11 +226,11 @@ class RescheduleAppointmentView(APIView):
 
         # ✅ Prevent double-booking
         conflict = Appointment.objects.filter(
-            artist=appointment.artist, date=new_date, time=new_time
+            employee=appointment.employee, date=new_date, time=new_time
         ).exclude(id=appointment.id).exists()
 
         if conflict:
-            return Response({"error": "This artist is already booked at this time."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "This employee is already booked at this time."}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = AppointmentSerializer(appointment, data={"date": new_date, "time": new_time}, partial=True)
         if serializer.is_valid():
@@ -321,7 +284,7 @@ class ApproveNotificationView(APIView):
 
         # ✅ Notify the employee
         Notifications.objects.create(
-            employee=notification.appointment.client.artist,
+            employee=notification.appointment.client.employee,
             appointment=notification.appointment,
             action="approved",
             status="approved"
@@ -357,7 +320,7 @@ class DeclineNotificationView(APIView):
 
         # ✅ Notify the employee
         Notifications.objects.create(
-            employee=notification.appointment.client.artist,
+            employee=notification.appointment.client.employee,
             appointment=notification.appointment,
             action="denied",
             status="denied"

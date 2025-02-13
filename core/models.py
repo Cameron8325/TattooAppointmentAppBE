@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 
-# User model for authentication and artist designation
+# User model for authentication and employee designation
 class User(AbstractUser):
     ROLE_CHOICES = [
         ("admin", "Admin"),  # Manager/Superuser
@@ -15,17 +15,17 @@ class ClientProfile(models.Model):
     last_name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=15)
-    artist = models.ForeignKey(
+    employee = models.ForeignKey(
         'User',
         on_delete=models.SET_NULL,
         null=True,
-        related_name='clients'  # Tracks clients assigned to an artist
+        related_name='clients'  # Tracks clients assigned to an employee
     )
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 
-# Service model for the types of services offered by artists
+# Service model for the types of services offered by employees
 class Service(models.Model):
     SERVICE_CHOICES = [
         ("service_1", "Service 1"),
@@ -45,7 +45,7 @@ class Service(models.Model):
 # Appointment model for scheduling appointments
 class Appointment(models.Model):
     STATUS_CHOICES = [
-        ('pending', 'Pending'),
+        ('pending', 'Pending Approval'),
         ('confirmed', 'Confirmed'),
         ('completed', 'Completed'),
         ('canceled', 'Canceled'),
@@ -56,7 +56,7 @@ class Appointment(models.Model):
         on_delete=models.CASCADE,
         related_name='appointments'
     )
-    artist = models.ForeignKey(
+    employee = models.ForeignKey(
         'User',
         on_delete=models.CASCADE,
         related_name='bookings'
@@ -71,16 +71,21 @@ class Appointment(models.Model):
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
-        default='pending'
+        default='confirmed'
     )
     requires_approval = models.BooleanField(default=False)
     notes = models.TextField(
         null=True,
         blank=True
     )
+    
+    def save(self, *args, **kwargs):
+        if self.requires_approval and self.status != "pending":
+            self.status = "pending"  # ✅ Force pending if approval is required
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Appointment for {self.client} with {self.artist} on {self.date}"
+        return f"Appointment for {self.client} with {self.employee} on {self.date}"
 
 
 # Notification model for manager approvals
