@@ -168,7 +168,7 @@ class AppointmentListView(ListCreateAPIView):
         if user.role == "admin":
             return Appointment.objects.all()
         if user.role == "employee":
-            return Appointment.objects.filter(client__employee=user)
+            return Appointment.objects.filter(employee=user)
         return Appointment.objects.filter(employee=user)
 
     def perform_create(self, serializer):
