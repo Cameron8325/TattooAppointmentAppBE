@@ -69,9 +69,6 @@ class ServiceSerializer(serializers.ModelSerializer):
 
 # Appointment Serializer
 class AppointmentSerializer(serializers.ModelSerializer):
-    """
-    Serializer for Appointment model.
-    """
     client = ClientProfileSerializer(read_only=True)
     client_id = serializers.PrimaryKeyRelatedField(
         queryset=ClientProfile.objects.all(), source="client", write_only=True, required=False
@@ -81,48 +78,49 @@ class AppointmentSerializer(serializers.ModelSerializer):
     employee = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), required=True
     )
-    service = serializers.SlugRelatedField(slug_field='name', queryset=Service.objects.all())
+    service = serializers.SlugRelatedField(slug_field="name", queryset=Service.objects.all())
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    end_time = serializers.TimeField()  # Add end_time here
 
     class Meta:
         model = Appointment
         fields = [
-            "id", "client", "client_id", "new_client", "employee", "service", "date", "time",
-            "price", "status", "notes", "requires_approval"
+            "id", "client", "client_id", "new_client", "employee", "service",
+            "date", "time", "end_time", "price", "status", "notes", "requires_approval"
         ]
 
     def validate(self, data):
-        """
-        Ensure that only one of `client_id` or `new_client` is provided.
-        """
-        if data.get("client") and data.get("new_client"):
+        client = data.get("client") if "client" in data else getattr(self.instance, "client", None)
+        new_client = data.get("new_client") if "new_client" in data else None
+
+        if client and new_client:
             raise serializers.ValidationError({"error": "Provide either 'client_id' or 'new_client', not both."})
-
-        if not data.get("client") and not data.get("new_client"):
+        if not client and not new_client:
             raise serializers.ValidationError({"client": "A client is required."})
-
+        
+        # Validate that end_time is later than start time
+        start_time = data.get("time")
+        end_time = data.get("end_time")
+        if start_time and end_time and end_time <= start_time:
+            raise serializers.ValidationError({"end_time": "End time must be after start time."})
         return data
 
     def create(self, validated_data):
-        # Pop out the client and new_client data from the validated data.
         client = validated_data.pop("client", None)
         new_client_data = validated_data.pop("new_client", None)
 
-        # If no client was provided but new_client data exists, handle it here.
         if client is None and new_client_data:
             email = new_client_data.get("email")
-            # Check if a client with this email already exists.
             client = ClientProfile.objects.filter(email=email).first()
             if client is None:
                 client = ClientProfile.objects.create(**new_client_data)
-                print("✅ New Client Created:", client)
-            else:
-                print("⚠️ Existing Client Found:", client)
-
         if client is None:
             raise serializers.ValidationError({"client": "A client is required."})
-
         return Appointment.objects.create(client=client, **validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data["client"] = validated_data.get("client", instance.client)
+        return super().update(instance, validated_data)
 
 # Appointment Overview Serializer
 class AppointmentOverviewSerializer(serializers.Serializer):

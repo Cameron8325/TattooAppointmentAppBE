@@ -220,11 +220,18 @@ class RescheduleAppointmentView(APIView):
     def patch(self, request, pk):
         appointment = get_object_or_404(Appointment, pk=pk)
         data = request.data
+        user = request.user  # Get the logged-in user
 
+        # Ensure existing client is included if it's missing from the request
+        existing_client = appointment.client
+        client_id = data.get("client_id", existing_client.id if existing_client else None)
+
+        if not client_id:
+            return Response({"error": "A client is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Prevent double-booking
         new_date = data.get("date", appointment.date)
         new_time = data.get("time", appointment.time)
-
-        # ✅ Prevent double-booking
         conflict = Appointment.objects.filter(
             employee=appointment.employee, date=new_date, time=new_time
         ).exclude(id=appointment.id).exists()
@@ -232,13 +239,23 @@ class RescheduleAppointmentView(APIView):
         if conflict:
             return Response({"error": "This employee is already booked at this time."}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = AppointmentSerializer(appointment, data={"date": new_date, "time": new_time}, partial=True)
+        # Include the end_time in the update data.
+        updated_data = {
+            "date": new_date,
+            "time": new_time,
+            "end_time": data.get("end_time", appointment.end_time),
+            "notes": data.get("notes", appointment.notes),  # Ensure notes are updated
+            "status": "confirmed" if user.role == "admin" else "pending",
+            "requires_approval": False if user.role == "admin" else True,
+            "client_id": client_id
+        }
+
+        serializer = AppointmentSerializer(appointment, data=updated_data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # 🔹 Notification Views
 class RecentActivityView(ListAPIView):

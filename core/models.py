@@ -66,22 +66,20 @@ class Appointment(models.Model):
         on_delete=models.CASCADE
     )
     date = models.DateField()
-    time = models.TimeField()
-    price = models.DecimalField(max_digits=10, decimal_places=2)  # ✅ Required, no default price
+    time = models.TimeField()           # Start time
+    end_time = models.TimeField()       # New field for end time
+    price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
         default='confirmed'
     )
     requires_approval = models.BooleanField(default=False)
-    notes = models.TextField(
-        null=True,
-        blank=True
-    )
+    notes = models.TextField(null=True, blank=True)
     
     def save(self, *args, **kwargs):
         if self.requires_approval and self.status != "pending":
-            self.status = "pending"  # ✅ Force pending if approval is required
+            self.status = "pending"
         super().save(*args, **kwargs)
 
     def __str__(self):
