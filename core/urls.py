@@ -5,7 +5,7 @@ from core.views import (
     ClientProfileListView, ClientProfileDetailView,
     ServiceListView, ServiceDetailView,
     AppointmentListView, AppointmentDetailView, AppointmentOverviewView, RescheduleAppointmentView,
-    RecentActivityView, ApproveNotificationView, DeclineNotificationView, CSRFTokenView
+    RecentActivityView, ApproveNotificationView, DeclineNotificationView, DeleteNotificationView, CSRFTokenView
 )
 
 urlpatterns = [
@@ -38,4 +38,6 @@ urlpatterns = [
     path("recent-activity/", RecentActivityView.as_view(), name="recent-activity"),
     path("recent-activity/<int:pk>/approve/", ApproveNotificationView.as_view(), name="approve-notification"),
     path("recent-activity/<int:pk>/decline/", DeclineNotificationView.as_view(), name="decline-notification"),
+    path("recent-activity/<int:pk>/delete/", DeleteNotificationView.as_view(), name="delete-notification"),
+
 ]

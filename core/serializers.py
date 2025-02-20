@@ -133,7 +133,8 @@ class AppointmentOverviewSerializer(serializers.Serializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notifications
-        fields = ['id', 'employee', 'action', 'timestamp', 'status']
+        fields = ['id', 'employee', 'action', 'timestamp', 'status', 'changes', 'previous_details']
+
 
 # Authentication Serializer for Login
 class LoginSerializer(serializers.Serializer):

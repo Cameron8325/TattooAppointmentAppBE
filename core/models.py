@@ -93,6 +93,8 @@ class Notifications(models.Model):
         ('updated', 'Updated Appointment'),
         ('canceled', 'Canceled Appointment'),
         ('pending_approval', 'Pending Approval'),
+        ('approved', 'Approved'),
+        ('denied', 'Denied'),
     ]
 
     employee = models.ForeignKey(
@@ -122,6 +124,9 @@ class Notifications(models.Model):
         ],
         default='pending'
     )
+    # New fields for detailed tracking:
+    changes = models.JSONField(null=True, blank=True)          # Stores a diff of changed fields.
+    previous_details = models.JSONField(null=True, blank=True)   # Stores a snapshot before changes (for reschedules).
 
     def __str__(self):
         return f"Notification from {self.employee} - {self.action} ({self.status})"

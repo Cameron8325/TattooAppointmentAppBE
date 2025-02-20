@@ -9,6 +9,7 @@ from django.utils.decorators import method_decorator
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.middleware.csrf import get_token
 from django.contrib.auth import authenticate, login, logout, get_user_model
+from django.utils.timezone import now
 from datetime import date, timedelta
 from .models import ClientProfile, Service, Appointment, Notifications
 from .serializers import (
@@ -156,9 +157,6 @@ class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
 class AppointmentListView(ListCreateAPIView):
-    """
-    Handles listing all appointments and creating new ones.
-    """
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
     permission_classes = [IsAuthenticated]
@@ -167,15 +165,26 @@ class AppointmentListView(ListCreateAPIView):
         user = self.request.user
         if user.role == "admin":
             return Appointment.objects.all()
-        if user.role == "employee":
-            return Appointment.objects.filter(employee=user)
         return Appointment.objects.filter(employee=user)
 
     def perform_create(self, serializer):
-        # Simply let the serializer handle client creation/lookup.
-        serializer.save()
-
-
+        appointment = serializer.save()
+        # Only create a notification if the request comes from an employee (non-admin)
+        if self.request.user.role != "admin":
+            Notifications.objects.create(
+                employee=self.request.user,
+                appointment=appointment,
+                action="created",
+                changes={
+                    "date": str(appointment.date),
+                    "time": str(appointment.time),
+                    "end_time": str(appointment.end_time),
+                    "price": str(appointment.price),
+                    "service": appointment.service.name,
+                    "notes": appointment.notes,
+                }
+                # previous_details remains null for new creations
+            )
 
 class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
     """
@@ -212,136 +221,207 @@ class AppointmentOverviewView(APIView):
         return Response(data)
 
 class RescheduleAppointmentView(APIView):
-    """
-    Allows users to reschedule appointments while preventing double-booking.
-    """
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
         appointment = get_object_or_404(Appointment, pk=pk)
         data = request.data
-        user = request.user  # Get the logged-in user
+        user = request.user
 
-        # Ensure existing client is included if it's missing from the request
-        existing_client = appointment.client
-        client_id = data.get("client_id", existing_client.id if existing_client else None)
+        # Capture current (pre-update) appointment details
+        previous_data = {
+            "date": str(appointment.date),
+            "time": str(appointment.time),
+            "end_time": str(appointment.end_time),
+            "price": str(appointment.price),
+            "service": appointment.service.name,
+            "notes": appointment.notes,
+        }
 
-        if not client_id:
-            return Response({"error": "A client is required."}, status=status.HTTP_400_BAD_REQUEST)
+        # Build new data from the request (with fallbacks to existing values)
+        new_data = {
+            "date": data.get("date", str(appointment.date)),
+            "time": data.get("time", str(appointment.time)),
+            "end_time": data.get("end_time", str(appointment.end_time)),
+            "price": data.get("price", str(appointment.price)),
+            "service": data.get("service", appointment.service.name),
+            "notes": data.get("notes", appointment.notes),
+        }
 
-        # Prevent double-booking
-        new_date = data.get("date", appointment.date)
-        new_time = data.get("time", appointment.time)
-        conflict = Appointment.objects.filter(
-            employee=appointment.employee, date=new_date, time=new_time
-        ).exclude(id=appointment.id).exists()
+        # Compute diff: record only fields that changed
+        diff = {}
+        for key in previous_data:
+            if previous_data[key] != new_data[key]:
+                diff[key] = {"old": previous_data[key], "new": new_data[key]}
 
-        if conflict:
-            return Response({"error": "This employee is already booked at this time."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Include the end_time in the update data.
+        # Prepare update data for the serializer.
+        # Force the status to "pending" and requires_approval to True for employee edits.
         updated_data = {
-            "date": new_date,
-            "time": new_time,
+            "date": data.get("date", appointment.date),
+            "time": data.get("time", appointment.time),
             "end_time": data.get("end_time", appointment.end_time),
-            "notes": data.get("notes", appointment.notes),  # Ensure notes are updated
-            "status": "confirmed" if user.role == "admin" else "pending",
-            "requires_approval": False if user.role == "admin" else True,
-            "client_id": client_id
+            "notes": data.get("notes", appointment.notes),
+            "status": "pending",             # Force pending status on employee edit
+            "requires_approval": True,         # Mark as needing approval
+            "client_id": data.get("client_id", appointment.client.id)
         }
 
         serializer = AppointmentSerializer(appointment, data=updated_data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            # Look for any existing notification for this appointment (regardless of its current status)
+            existing_notification = Notifications.objects.filter(
+                appointment=appointment,
+                employee=user,
+                action="updated"
+            ).first()
+
+            if existing_notification:
+                # Merge the new diff into the existing changes
+                existing_changes = existing_notification.changes or {}
+                existing_changes.update(diff)
+                existing_notification.changes = existing_changes
+                # Update previous_details to capture the state before this new change
+                existing_notification.previous_details = previous_data
+                # Reset status to pending and update the timestamp
+                existing_notification.status = "pending"
+                existing_notification.timestamp = now()
+                existing_notification.save()
+            else:
+                Notifications.objects.create(
+                    employee=user,
+                    appointment=appointment,
+                    action="updated",
+                    changes=diff,
+                    previous_details=previous_data,
+                    status="pending"
+                )
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # 🔹 Notification Views
 class RecentActivityView(ListAPIView):
-    """
-    Allows admins to see all notifications and employees to see their own requests.
-    """
     serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated]  # Allow both admins and employees
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
 
-        if user.role == "admin":
-            return Notifications.objects.all().order_by("-timestamp")  # Admins see all notifications
+        # Auto-delete notifications older than 30 days
+        threshold_date = now() - timedelta(days=30)
+        Notifications.objects.filter(timestamp__lt=threshold_date).delete()
 
-        return Notifications.objects.filter(employee=user).order_by("-timestamp")  # Employees see their own
+        if user.role == "admin":
+            # Exclude notifications where the employee is the current admin
+            return Notifications.objects.exclude(employee=user).order_by("-timestamp")
+        return Notifications.objects.filter(employee=user).order_by("-timestamp")
 
 
 class ApproveNotificationView(APIView):
-    """
-    Allows an admin to approve a notification.
-    """
     permission_classes = [IsAdminUser]
 
     def post(self, request, pk):
-        """
-        When a manager approves an appointment:
-        ✅ The appointment is confirmed.
-        ✅ The notification is marked as approved.
-        ✅ The employee is notified.
-        """
         notification = get_object_or_404(Notifications, pk=pk)
 
-        # ✅ Update the appointment status
+        # Update the appointment status to confirmed
         if notification.appointment:
             notification.appointment.status = "confirmed"
             notification.appointment.requires_approval = False
             notification.appointment.save()
 
-        # ✅ Update the notification
+        # Mark the notification as approved
         notification.status = "approved"
         notification.save()
 
-        # ✅ Notify the employee
-        Notifications.objects.create(
-            employee=notification.appointment.client.employee,
-            appointment=notification.appointment,
-            action="approved",
-            status="approved"
-        )
+        # Optionally, notify the employee about the approval
+        if notification.employee != request.user:  # Ensure the manager isn't notifying themselves
+            Notifications.objects.create(
+                employee=notification.employee,  # Notify the employee, not the admin
+                appointment=notification.appointment,
+                action="approved",
+                status="approved"
+            )
 
         return Response({"message": "Appointment approved successfully."}, status=200)
 
 
 class DeclineNotificationView(APIView):
-    """
-    Allows an admin to decline a notification.
-    """
     permission_classes = [IsAdminUser]
 
     def post(self, request, pk):
-        """
-        When a manager denies an appointment:
-        ✅ The appointment is canceled.
-        ✅ The notification is marked as denied.
-        ✅ The employee is notified.
-        """
         notification = get_object_or_404(Notifications, pk=pk)
-
-        # ✅ Update the appointment status to canceled
         if notification.appointment:
-            notification.appointment.status = "canceled"
-            notification.appointment.requires_approval = False
-            notification.appointment.save()
-
-        # ✅ Update the notification
+            if notification.previous_details:
+                # Revert appointment to its previous details
+                appointment = notification.appointment
+                pd = notification.previous_details
+                appointment.date = pd.get("date", appointment.date)
+                appointment.time = pd.get("time", appointment.time)
+                appointment.end_time = pd.get("end_time", appointment.end_time)
+                appointment.price = pd.get("price", appointment.price)
+                # Look up the service by its name stored in previous_details
+                service_name = pd.get("service")
+                if service_name:
+                    service_obj = Service.objects.filter(name=service_name).first()
+                    if service_obj:
+                        appointment.service = service_obj
+                appointment.notes = pd.get("notes", appointment.notes)
+                appointment.status = "confirmed"  # Revert to confirmed (or your desired default)
+                appointment.requires_approval = False
+                appointment.save()
+            else:
+                # For new appointments (with no previous details), cancel the appointment
+                appointment = notification.appointment
+                appointment.status = "canceled"
+                appointment.requires_approval = False
+                appointment.save()
+        # Mark the notification as denied
         notification.status = "denied"
         notification.save()
 
-        # ✅ Notify the employee
-        Notifications.objects.create(
-            employee=notification.appointment.client.employee,
-            appointment=notification.appointment,
-            action="denied",
-            status="denied"
-        )
-
+        # Optionally, notify the employee about the denial
+        # Notify the employee (not the admin)
+        if notification.employee != request.user:
+            Notifications.objects.create(
+                employee=notification.employee,  # Notify the employee, not the admin
+                appointment=notification.appointment,
+                action="denied",
+                status="denied"
+            )
         return Response({"message": "Appointment request denied."}, status=200)
 
+class DeleteNotificationView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def delete(self, request, pk):
+        notification = get_object_or_404(Notifications, pk=pk)
+
+        # If it's a change request and has previous details, revert appointment
+        if notification.action == "updated" and notification.previous_details:
+            appointment = notification.appointment
+            prev_details = notification.previous_details
+
+            # Restore previous values
+            appointment.date = prev_details.get("date", appointment.date)
+            appointment.time = prev_details.get("time", appointment.time)
+            appointment.end_time = prev_details.get("end_time", appointment.end_time)
+            appointment.price = prev_details.get("price", appointment.price)
+
+            # Restore service if it was changed
+            service_name = prev_details.get("service")
+            if service_name:
+                service_obj = Service.objects.filter(name=service_name).first()
+                if service_obj:
+                    appointment.service = service_obj
+
+            appointment.notes = prev_details.get("notes", appointment.notes)
+
+            # Reset status since the request is no longer valid
+            appointment.status = "confirmed"
+            appointment.requires_approval = False
+            appointment.save()
+
+        # Delete the notification
+        notification.delete()
+        return Response({"message": "Notification deleted successfully"}, status=204)
