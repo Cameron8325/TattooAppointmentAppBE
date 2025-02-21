@@ -228,7 +228,7 @@ class RescheduleAppointmentView(APIView):
         data = request.data
         user = request.user
 
-        # Capture current (pre-update) appointment details
+        # Capture current (pre-update) appointment details as the original snapshot
         previous_data = {
             "date": str(appointment.date),
             "time": str(appointment.time),
@@ -238,7 +238,7 @@ class RescheduleAppointmentView(APIView):
             "notes": appointment.notes,
         }
 
-        # Build new data from the request (with fallbacks to existing values)
+        # Build new data from the request (using existing values as fallbacks)
         new_data = {
             "date": data.get("date", str(appointment.date)),
             "time": data.get("time", str(appointment.time)),
@@ -248,46 +248,45 @@ class RescheduleAppointmentView(APIView):
             "notes": data.get("notes", appointment.notes),
         }
 
-        # Compute diff: record only fields that changed
+        # Compute diff: record only the fields that changed
         diff = {}
         for key in previous_data:
             if previous_data[key] != new_data[key]:
                 diff[key] = {"old": previous_data[key], "new": new_data[key]}
 
         # Prepare update data for the serializer.
-        # Force the status to "pending" and requires_approval to True for employee edits.
+        # Force the appointment to a pending state and mark as requiring approval.
         updated_data = {
             "date": data.get("date", appointment.date),
             "time": data.get("time", appointment.time),
             "end_time": data.get("end_time", appointment.end_time),
             "notes": data.get("notes", appointment.notes),
-            "status": "pending",             # Force pending status on employee edit
-            "requires_approval": True,         # Mark as needing approval
+            "status": "pending",
+            "requires_approval": True,
             "client_id": data.get("client_id", appointment.client.id)
         }
 
         serializer = AppointmentSerializer(appointment, data=updated_data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            # Look for any existing notification for this appointment (regardless of its current status)
+            # Look for an existing pending update notification for this appointment and employee.
             existing_notification = Notifications.objects.filter(
                 appointment=appointment,
                 employee=user,
-                action="updated"
+                action="updated",
+                status="pending"
             ).first()
 
             if existing_notification:
-                # Merge the new diff into the existing changes
+                # Merge new changes into the existing 'changes' diff.
                 existing_changes = existing_notification.changes or {}
                 existing_changes.update(diff)
                 existing_notification.changes = existing_changes
-                # Update previous_details to capture the state before this new change
-                existing_notification.previous_details = previous_data
-                # Reset status to pending and update the timestamp
-                existing_notification.status = "pending"
+                # Do not update previous_details – this remains the snapshot from the last confirmed state.
                 existing_notification.timestamp = now()
                 existing_notification.save()
             else:
+                # Create a new notification with the original snapshot.
                 Notifications.objects.create(
                     employee=user,
                     appointment=appointment,
@@ -299,6 +298,7 @@ class RescheduleAppointmentView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 # 🔹 Notification Views
 class RecentActivityView(ListAPIView):
@@ -324,24 +324,15 @@ class ApproveNotificationView(APIView):
     def post(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
 
-        # Update the appointment status to confirmed
         if notification.appointment:
             notification.appointment.status = "confirmed"
             notification.appointment.requires_approval = False
             notification.appointment.save()
 
-        # Mark the notification as approved
+        # Clear the previous_details snapshot now that the appointment is confirmed.
+        notification.previous_details = None
         notification.status = "approved"
         notification.save()
-
-        # Optionally, notify the employee about the approval
-        if notification.employee != request.user:  # Ensure the manager isn't notifying themselves
-            Notifications.objects.create(
-                employee=notification.employee,  # Notify the employee, not the admin
-                appointment=notification.appointment,
-                action="approved",
-                status="approved"
-            )
 
         return Response({"message": "Appointment approved successfully."}, status=200)
 
@@ -380,15 +371,6 @@ class DeclineNotificationView(APIView):
         notification.status = "denied"
         notification.save()
 
-        # Optionally, notify the employee about the denial
-        # Notify the employee (not the admin)
-        if notification.employee != request.user:
-            Notifications.objects.create(
-                employee=notification.employee,  # Notify the employee, not the admin
-                appointment=notification.appointment,
-                action="denied",
-                status="denied"
-            )
         return Response({"message": "Appointment request denied."}, status=200)
 
 class DeleteNotificationView(APIView):

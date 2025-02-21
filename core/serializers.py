@@ -131,9 +131,45 @@ class AppointmentOverviewSerializer(serializers.Serializer):
 
 # Notification Serializer
 class NotificationSerializer(serializers.ModelSerializer):
+    appointment_details = serializers.SerializerMethodField()
+    employee_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Notifications
-        fields = ['id', 'employee', 'action', 'timestamp', 'status', 'changes', 'previous_details']
+        fields = [
+            "id",
+            "employee",
+            "employee_name",
+            "action",
+            "timestamp",
+            "status",
+            "changes",
+            "previous_details",
+            "appointment_details",
+        ]
+
+    def get_appointment_details(self, obj):
+        """
+        Return a dictionary of relevant appointment details.
+        """
+        if obj.appointment:
+            return {
+                "client": obj.appointment.client.first_name + " " + obj.appointment.client.last_name,
+                "artist": obj.appointment.employee.first_name + " " + obj.appointment.employee.last_name,
+                "service": obj.appointment.service.name,
+                "price": str(obj.appointment.price),
+                "date": str(obj.appointment.date),
+                "time": str(obj.appointment.time),
+                "end_time": str(obj.appointment.end_time),
+                "notes": obj.appointment.notes,
+            }
+        return None
+
+    def get_employee_name(self, obj):
+        """
+        Get full name of the employee who requested the change.
+        """
+        return obj.employee.first_name + " " + obj.employee.last_name if obj.employee else "Unknown"
 
 
 # Authentication Serializer for Login
