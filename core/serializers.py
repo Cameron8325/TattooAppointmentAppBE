@@ -128,6 +128,7 @@ class AppointmentOverviewSerializer(serializers.Serializer):
     completed = serializers.IntegerField()
     pending = serializers.IntegerField()
     canceled = serializers.IntegerField()
+    no_show = serializers.IntegerField()
 
 # Notification Serializer
 class NotificationSerializer(serializers.ModelSerializer):

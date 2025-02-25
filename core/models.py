@@ -49,6 +49,7 @@ class Appointment(models.Model):
         ('confirmed', 'Confirmed'),
         ('completed', 'Completed'),
         ('canceled', 'Canceled'),
+        ('no_show', 'No Show')
     ]
 
     client = models.ForeignKey(
@@ -65,7 +66,7 @@ class Appointment(models.Model):
         'Service',
         on_delete=models.CASCADE
     )
-    date = models.DateField()
+    date = models.DateField(db_index=True)
     time = models.TimeField()           # Start time
     end_time = models.TimeField()       # New field for end time
     price = models.DecimalField(max_digits=10, decimal_places=2)

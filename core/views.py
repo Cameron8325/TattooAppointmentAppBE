@@ -164,8 +164,9 @@ class AppointmentListView(ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
         if user.role == "admin":
-            return Appointment.objects.all()
-        return Appointment.objects.filter(employee=user)
+            # Admin sees upcoming appointments only.
+            return Appointment.objects.filter(date__gte=date.today())
+        return Appointment.objects.filter(employee=user, date__gte=date.today())
 
     def perform_create(self, serializer):
         appointment = serializer.save()
@@ -183,8 +184,8 @@ class AppointmentListView(ListCreateAPIView):
                     "service": appointment.service.name,
                     "notes": appointment.notes,
                 }
-                # previous_details remains null for new creations
             )
+
 
 class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
     """
@@ -216,6 +217,7 @@ class AppointmentOverviewView(APIView):
             "completed": queryset.filter(status="completed").count(),
             "pending": queryset.filter(status="pending").count(),
             "canceled": queryset.filter(status="canceled").count(),
+            "no_show": queryset.filter(status="no_show").count(),
         }
 
         return Response(data)
@@ -228,6 +230,25 @@ class RescheduleAppointmentView(APIView):
         data = request.data
         user = request.user
 
+        # Check if a direct status update is requested (for Completed or No Show)
+        new_status = data.get("status")
+        if new_status in ["completed", "no_show"]:
+            previous_status = appointment.status
+            appointment.status = new_status
+            appointment.requires_approval = False
+            appointment.save()
+            if new_status == "no_show":
+                # Create an informational notification for the manager
+                Notifications.objects.create(
+                    employee=user,  # or assign to a manager if available
+                    appointment=appointment,
+                    action="no_show",
+                    changes={"status": {"old": previous_status, "new": "no_show"}},
+                    status="pending"  # This can be adjusted if a non-actionable status is preferred
+                )
+            return Response({"message": f"Appointment marked as {new_status}."}, status=status.HTTP_200_OK)
+
+        # Otherwise, follow the normal reschedule update logic.
         # Capture current (pre-update) appointment details as the original snapshot
         previous_data = {
             "date": str(appointment.date),
@@ -298,7 +319,6 @@ class RescheduleAppointmentView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # 🔹 Notification Views
 class RecentActivityView(ListAPIView):
