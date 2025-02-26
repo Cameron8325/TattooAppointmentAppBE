@@ -78,16 +78,26 @@ class AppointmentSerializer(serializers.ModelSerializer):
     employee = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), required=True
     )
+    employee_name = serializers.SerializerMethodField()  # ✅ Correctly defined
     service = serializers.SlugRelatedField(slug_field="name", queryset=Service.objects.all())
+    service_display = serializers.SerializerMethodField()  # ✅ Fixed to use SerializerMethodField
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
-    end_time = serializers.TimeField()  # Add end_time here
+    end_time = serializers.TimeField()
 
     class Meta:
         model = Appointment
         fields = [
-            "id", "client", "client_id", "new_client", "employee", "service",
+            "id", "client", "client_id", "new_client", "employee", "employee_name", "service", "service_display",
             "date", "time", "end_time", "price", "status", "notes", "requires_approval"
         ]
+
+    def get_employee_name(self, obj):
+        """Return full name of the assigned employee."""
+        return f"{obj.employee.first_name} {obj.employee.last_name}".strip() if obj.employee else "N/A"
+
+    def get_service_display(self, obj):
+        """Retrieve human-readable service name from choices."""
+        return obj.service.get_name_display() if obj.service else "N/A"
 
     def validate(self, data):
         client = data.get("client") if "client" in data else getattr(self.instance, "client", None)
@@ -121,6 +131,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         validated_data["client"] = validated_data.get("client", instance.client)
         return super().update(instance, validated_data)
+
 
 # Appointment Overview Serializer
 class AppointmentOverviewSerializer(serializers.Serializer):
