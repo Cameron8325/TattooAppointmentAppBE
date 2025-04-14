@@ -237,26 +237,26 @@ class RescheduleAppointmentView(APIView):
         data = request.data
         user = request.user
 
-        # Check if a direct status update is requested (for Completed or No Show)
+        # Handle direct status change (e.g., to "completed" or "no_show")
         new_status = data.get("status")
         if new_status in ["completed", "no_show"]:
             previous_status = appointment.status
             appointment.status = new_status
             appointment.requires_approval = False
             appointment.save()
+
             if new_status == "no_show":
-                # Create an informational notification for the manager
                 Notifications.objects.create(
-                    employee=user,  # or assign to a manager if available
+                    employee=user,
                     appointment=appointment,
                     action="no_show",
                     changes={"status": {"old": previous_status, "new": "no_show"}},
-                    status="pending"  # This can be adjusted if a non-actionable status is preferred
+                    status="pending"
                 )
+
             return Response({"message": f"Appointment marked as {new_status}."}, status=status.HTTP_200_OK)
 
-        # Otherwise, follow the normal reschedule update logic.
-        # Capture current (pre-update) appointment details as the original snapshot
+        # Capture snapshot of existing values
         previous_data = {
             "date": str(appointment.date),
             "time": str(appointment.time),
@@ -266,7 +266,7 @@ class RescheduleAppointmentView(APIView):
             "notes": appointment.notes,
         }
 
-        # Build new data from the request (using existing values as fallbacks)
+        # Get the new values (fallback to current)
         new_data = {
             "date": data.get("date", str(appointment.date)),
             "time": data.get("time", str(appointment.time)),
@@ -276,53 +276,67 @@ class RescheduleAppointmentView(APIView):
             "notes": data.get("notes", appointment.notes),
         }
 
-        # Compute diff: record only the fields that changed
+        # Compute changes for diff
         diff = {}
         for key in previous_data:
             if previous_data[key] != new_data[key]:
                 diff[key] = {"old": previous_data[key], "new": new_data[key]}
 
-        # Prepare update data for the serializer.
-        # Force the appointment to a pending state and mark as requiring approval.
-        updated_data = {
-            "date": data.get("date", appointment.date),
-            "time": data.get("time", appointment.time),
-            "end_time": data.get("end_time", appointment.end_time),
-            "notes": data.get("notes", appointment.notes),
-            "status": "pending",
-            "requires_approval": True,
-            "client_id": data.get("client_id", appointment.client.id)
-        }
+        # ✅ Different logic for Admin vs Employee
+        if user.role == "admin":
+            updated_data = {
+                "date": data.get("date", appointment.date),
+                "time": data.get("time", appointment.time),
+                "end_time": data.get("end_time", appointment.end_time),
+                "price": data.get("price", appointment.price),
+                "service": data.get("service", appointment.service.name),
+                "notes": data.get("notes", appointment.notes),
+                "status": "confirmed",
+                "requires_approval": False,
+                "client_id": data.get("client_id", appointment.client.id)
+            }
+        else:
+            updated_data = {
+                "date": data.get("date", appointment.date),
+                "time": data.get("time", appointment.time),
+                "end_time": data.get("end_time", appointment.end_time),
+                "price": data.get("price", appointment.price),
+                "service": data.get("service", appointment.service.name),
+                "notes": data.get("notes", appointment.notes),
+                "status": "pending",
+                "requires_approval": True,
+                "client_id": data.get("client_id", appointment.client.id)
+            }
 
         serializer = AppointmentSerializer(appointment, data=updated_data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            # Look for an existing pending update notification for this appointment and employee.
-            existing_notification = Notifications.objects.filter(
-                appointment=appointment,
-                employee=user,
-                action="updated",
-                status="pending"
-            ).first()
 
-            if existing_notification:
-                # Merge new changes into the existing 'changes' diff.
-                existing_changes = existing_notification.changes or {}
-                existing_changes.update(diff)
-                existing_notification.changes = existing_changes
-                # Do not update previous_details – this remains the snapshot from the last confirmed state.
-                existing_notification.timestamp = now()
-                existing_notification.save()
-            else:
-                # Create a new notification with the original snapshot.
-                Notifications.objects.create(
-                    employee=user,
+            # 🔔 Create or update notification only if not admin
+            if user.role != "admin":
+                existing_notification = Notifications.objects.filter(
                     appointment=appointment,
+                    employee=user,
                     action="updated",
-                    changes=diff,
-                    previous_details=previous_data,
                     status="pending"
-                )
+                ).first()
+
+                if existing_notification:
+                    existing_changes = existing_notification.changes or {}
+                    existing_changes.update(diff)
+                    existing_notification.changes = existing_changes
+                    existing_notification.timestamp = now()
+                    existing_notification.save()
+                else:
+                    Notifications.objects.create(
+                        employee=user,
+                        appointment=appointment,
+                        action="updated",
+                        changes=diff,
+                        previous_details=previous_data,
+                        status="pending"
+                    )
+
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
