@@ -161,27 +161,29 @@ class NotificationSerializer(serializers.ModelSerializer):
         ]
 
     def get_appointment_details(self, obj):
-        """
-        Return a dictionary of relevant appointment details.
-        """
-        if obj.appointment:
-            return {
-                "client": obj.appointment.client.first_name + " " + obj.appointment.client.last_name,
-                "artist": obj.appointment.employee.first_name + " " + obj.appointment.employee.last_name,
-                "service": obj.appointment.service.name,
-                "price": str(obj.appointment.price),
-                "date": str(obj.appointment.date),
-                "time": str(obj.appointment.time),
-                "end_time": str(obj.appointment.end_time),
-                "notes": obj.appointment.notes,
-            }
-        return None
+        if not obj.appointment:
+            return None
+
+        # Format time fields into 12‑hour with no leading zero
+        raw_t1 = obj.appointment.time.strftime("%I:%M %p")
+        t1 = raw_t1.lstrip("0")
+        raw_t2 = obj.appointment.end_time.strftime("%I:%M %p")
+        t2 = raw_t2.lstrip("0")
+
+        return {
+            "client": f"{obj.appointment.client.first_name} {obj.appointment.client.last_name}",
+            "artist": f"{obj.appointment.employee.first_name} {obj.appointment.employee.last_name}",
+            "service": obj.appointment.service.get_name_display(),
+            "price": str(obj.appointment.price),
+            "date": obj.appointment.date.strftime("%Y-%m-%d"),
+            "time": t1,
+            "end_time": t2,
+            "notes": obj.appointment.notes or "",
+        }
 
     def get_employee_name(self, obj):
-        """
-        Get full name of the employee who requested the change.
-        """
-        return obj.employee.first_name + " " + obj.employee.last_name if obj.employee else "Unknown"
+        return f"{obj.employee.first_name} {obj.employee.last_name}" if obj.employee else "Unknown"
+
 
 
 # Authentication Serializer for Login
