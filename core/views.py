@@ -445,26 +445,38 @@ class DeleteNotificationView(APIView):
 
 class KeyMetrics(APIView):
     def get(self, request):
-        queryset = Appointment.objects.all().filter(status="completed")
-        filter_param = request.query_params.get("filter", None)
+        queryset = Appointment.objects.filter(status="completed")
+        range_param = request.query_params.get("range")
+        month_param = request.query_params.get("month")
 
-        if filter_param == "today":
-            queryset = queryset.filter(date=date.today())
-        elif filter_param == "this_week":
-            start_of_week = date.today() - timedelta(days=7)
-            end_of_week = date.today()
-            queryset = queryset.filter(date__range=[start_of_week, end_of_week])
-        elif filter_param == "this_month":
-            start_of_month = date.today() - timedelta(days=30)
-            end_of_month = date.today()
-            queryset = queryset.filter(date__range=[start_of_month, end_of_month])
+        # Last 7 or 30 Days Range
+        if range_param == "last_7_days":
+            start = date.today() - timedelta(days=7)
+            queryset = queryset.filter(date__gte=start)
+        elif range_param == "last_30_days":
+            start = date.today() - timedelta(days=30)
+            queryset = queryset.filter(date__gte=start)
 
+        # Specific Month Filter (e.g., 2025-04)
+        elif month_param:
+            try:
+                year, month = map(int, month_param.split("-"))
+                start = date(year, month, 1)
+                if month == 12:
+                    end = date(year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    end = date(year, month + 1, 1) - timedelta(days=1)
+                queryset = queryset.filter(date__range=[start, end])
+            except ValueError:
+                pass  # Invalid month format, fallback to no filter
+
+        # Calculate metrics
         total_rev = queryset.aggregate(total_revenue=Sum("price"))["total_revenue"]
         total_appts = queryset.count()
         total_clients = queryset.values("client").distinct().count()
 
         return Response({
-                "total_revenue": total_rev,
-                "total_appointments": total_appts,
-                "clients_served": total_clients
-            })
+            "total_revenue": total_rev,
+            "total_appointments": total_appts,
+            "clients_served": total_clients
+        })
