@@ -11,6 +11,7 @@ from django.middleware.csrf import get_token
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.utils.timezone import now
 from datetime import date, timedelta
+from django.db.models import Sum
 from .models import ClientProfile, Service, Appointment, Notifications
 from .serializers import (
     UserSerializer,
@@ -163,17 +164,10 @@ class AppointmentListView(ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        archived = self.request.query_params.get("archived")
-        if archived and archived.lower() == "true":
-            # Archived appointments: dates before today.
-            if user.role == "admin":
-                return Appointment.objects.filter(date__lt=date.today())
-            return Appointment.objects.filter(employee=user, date__lt=date.today())
-        else:
-            # Upcoming appointments: today and onward.
-            if user.role == "admin":
-                return Appointment.objects.filter(date__gte=date.today())
-            return Appointment.objects.filter(employee=user, date__gte=date.today())
+        if user.role == "admin":
+            return Appointment.objects.all()
+        return Appointment.objects.filter(employee=user)
+
 
     def perform_create(self, serializer):
         appointment = serializer.save()
@@ -448,3 +442,29 @@ class DeleteNotificationView(APIView):
         # Delete the notification
         notification.delete()
         return Response({"message": "Notification deleted successfully"}, status=204)
+
+class KeyMetrics(APIView):
+    def get(self, request):
+        queryset = Appointment.objects.all().filter(status="completed")
+        filter_param = request.query_params.get("filter", None)
+
+        if filter_param == "today":
+            queryset = queryset.filter(date=date.today())
+        elif filter_param == "this_week":
+            start_of_week = date.today() - timedelta(days=7)
+            end_of_week = date.today()
+            queryset = queryset.filter(date__range=[start_of_week, end_of_week])
+        elif filter_param == "this_month":
+            start_of_month = date.today() - timedelta(days=30)
+            end_of_month = date.today()
+            queryset = queryset.filter(date__range=[start_of_month, end_of_month])
+
+        total_rev = queryset.aggregate(total_revenue=Sum("price"))["total_revenue"]
+        total_appts = queryset.count()
+        total_clients = queryset.values("client").distinct().count()
+
+        return Response({
+                "total_revenue": total_rev,
+                "total_appointments": total_appts,
+                "clients_served": total_clients
+            })
