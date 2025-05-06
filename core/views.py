@@ -165,18 +165,26 @@ class AppointmentListView(ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
         archived = self.request.query_params.get("archived")
+        employee = self.request.query_params.get("employee")
 
-        if archived and archived.lower() == "true":
-            # Show past appointments
-            if user.role == "admin":
-                return Appointment.objects.filter(date__lt=date.today())
-            return Appointment.objects.filter(employee=user, date__lt=date.today())
-        else:
-            # Show current and future appointments
-            if user.role == "admin":
-                return Appointment.objects.filter(date__gte=date.today())
-            return Appointment.objects.filter(employee=user, date__gte=date.today())
+        if user.role == "admin":
+            if archived and archived.lower() == "true":
+                qs = Appointment.objects.filter(date__lt=date.today())
+            else:
+                qs = Appointment.objects.filter(date__gte=date.today())
 
+            if employee:
+                qs = qs.filter(employee__id=employee)
+
+            return qs
+
+        if user.role == "employee":
+            if archived and archived.lower() == "true":
+                qs = Appointment.objects.filter(employee=user, date__lt=date.today())
+            else:
+                qs = Appointment.objects.filter(employee=user, date__gte=date.today())
+
+            return qs
 
 
     def perform_create(self, serializer):
