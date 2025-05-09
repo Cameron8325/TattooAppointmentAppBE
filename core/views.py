@@ -11,6 +11,7 @@ from django.middleware.csrf import get_token
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.utils.timezone import now
 from datetime import date, timedelta
+from decimal import Decimal
 from django.db.models import Sum
 from .models import ClientProfile, Service, Appointment, Notifications
 from .serializers import (
@@ -497,4 +498,95 @@ class KeyMetrics(APIView):
             "total_revenue": total_rev,
             "total_appointments": total_appts,
             "clients_served": total_clients
+        })
+
+
+class BillingSummaryView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        # Extract user-provided inputs
+        start_date = request.data.get("start_date")
+        end_date = request.data.get("end_date")
+        month = request.data.get("month")
+        year = request.data.get("year")
+        fee_type = request.data.get("fee_type")
+        fee_value = request.data.get("fee_value")
+
+        # Validate fee input
+        if not fee_type or fee_value is None:
+            return Response({"error": "Missing fee_type or fee_value."}, status=400)
+
+        try:
+            fee_value = Decimal(str(fee_value))
+        except Exception:
+            return Response({"error": "Fee value must be numeric."}, status=400)
+
+        # Resolve date range
+        if month and year:
+            try:
+                month = int(month)
+                year = int(year)
+                start_date = date(year, month, 1)
+                if month == 12:
+                    end_date = date(year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    end_date = date(year, month + 1, 1) - timedelta(days=1)
+            except ValueError:
+                return Response({"error": "Invalid month or year provided."}, status=400)
+        elif not start_date or not end_date:
+            today = date.today()
+            start_date = date(today.year, today.month, 1)
+            end_date = today
+
+        # Query appointments
+        queryset = Appointment.objects.filter(status="completed", date__range=[start_date, end_date])
+        shop_total_revenue = queryset.aggregate(Sum("price"))['price__sum'] or Decimal('0')
+        shop_total_appointments = queryset.count()
+        shop_total_earnings = Decimal('0')  # Track total shop earnings
+
+        report_data = []
+        employee_ids = queryset.values_list("employee", flat=True).distinct()
+
+        for employee_id in employee_ids:
+            employee_appts = queryset.filter(employee__id=employee_id)
+            employee_total = employee_appts.aggregate(Sum("price"))['price__sum'] or Decimal('0')
+
+            if fee_type == "flat":
+                fee_amount = fee_value * employee_appts.count()
+            elif fee_type == "percentage":
+                fee_amount = employee_total * (fee_value / Decimal('100'))
+            else:
+                fee_amount = Decimal('0')
+
+            shop_total_earnings += fee_amount  # Add to shop earnings total
+
+            total_employee_revenue = employee_total - fee_amount
+
+            employee_data = {
+                "employee_id": employee_id,
+                "total_earned": float(employee_total),
+                "shop_fee": float(fee_amount),
+                "net_payout": float(total_employee_revenue),
+                "total_appointments": employee_appts.count(),
+                "appointments": [
+                    {
+                        "client_name": f"{appt.client.first_name} {appt.client.last_name}",
+                        "date": appt.date.strftime("%Y-%m-%d"),
+                        "price": float(appt.price),
+                        "shop_cut": float(fee_value) if fee_type == "flat" else float(appt.price * (fee_value / Decimal('100'))),
+                        "artist_cut": float(appt.price - (fee_value if fee_type == "flat" else appt.price * (fee_value / Decimal('100')))),
+                    }
+                    for appt in employee_appts.order_by("date")
+                ]
+            }
+
+            report_data.append(employee_data)
+
+        # Return the full report with added earnings
+        return Response({
+            "shop_total_revenue": float(shop_total_revenue),
+            "shop_total_appointments": shop_total_appointments,
+            "shop_total_earnings": float(shop_total_earnings),
+            "report": report_data
         })
