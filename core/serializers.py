@@ -88,7 +88,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         model = Appointment
         fields = [
             "id", "client", "client_id", "new_client", "employee", "employee_name", "service", "service_display",
-            "date", "time", "end_time", "price", "status", "notes", "requires_approval"
+            "date", "time", "end_time", "price", "status", "notes", "requires_approval", "deposit_required", "deposit_paid", "deposit_amount"
         ]
 
     def get_employee_name(self, obj):

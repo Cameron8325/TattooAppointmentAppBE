@@ -76,6 +76,9 @@ class Appointment(models.Model):
         default='confirmed'
     )
     requires_approval = models.BooleanField(default=False)
+    deposit_required = models.BooleanField(default=False)
+    deposit_paid = models.BooleanField(default=False)
+    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
     
     def save(self, *args, **kwargs):

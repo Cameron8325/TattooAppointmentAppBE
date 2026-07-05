@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from .permissions import IsAdmin, IsOwnerOrAdmin, user_is_admin
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -28,10 +29,11 @@ User = get_user_model()
 # 🔹 Authentication Views
 class RegisterView(generics.CreateAPIView):
     """
-    Handles user registration.
+    Handles user registration. Admin-only: this is an internal tool;
+    accounts are provisioned by the shop admin, not self-service.
     """
     queryset = User.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdmin]
     serializer_class = UserSerializer
 
 class LoginView(APIView):
@@ -101,19 +103,25 @@ class UserView(APIView):
 # 🔹 User Management Views
 class UserListView(ListCreateAPIView):
     """
-    Handles listing all users and creating new users.
+    Handles listing all users and creating new users. Admin-only.
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
 class UserDetailView(RetrieveUpdateDestroyAPIView):
     """
-    Handles retrieving, updating, or deleting a specific user.
+    Retrieve/update: the user themselves or an admin.
+    Delete: admin only.
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrAdmin]
+
+    def delete(self, request, *args, **kwargs):
+        if not user_is_admin(request.user):
+            raise PermissionDenied("Administrator access required to delete users.")
+        return super().delete(request, *args, **kwargs)
 
 # 🔹 Client Profile Views
 class ClientProfileListView(ListCreateAPIView):
