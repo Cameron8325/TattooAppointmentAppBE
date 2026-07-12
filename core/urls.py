@@ -5,6 +5,7 @@ from core.views import (
     ClientProfileListView, ClientProfileDetailView,
     ServiceListView, ServiceDetailView,
     AppointmentListView, AppointmentDetailView, AppointmentOverviewView, RescheduleAppointmentView,
+    AppointmentStatsView, ArtistPerformanceView,
     RecentActivityView, ApproveNotificationView, DeclineNotificationView, DeleteNotificationView, CSRFTokenView, KeyMetrics, BillingSummaryView
 )
 
@@ -36,7 +37,11 @@ urlpatterns = [
     path("appointments/", AppointmentListView.as_view(), name="appointment-list"),
     path("appointments/<int:pk>/", AppointmentDetailView.as_view(), name="appointment-detail"),
     path("appointments/overview/", AppointmentOverviewView.as_view(), name="appointment-overview"),
+    path("appointments/stats/", AppointmentStatsView.as_view(), name="appointment-stats"),
     path("appointments/<int:pk>/reschedule/", RescheduleAppointmentView.as_view(), name="reschedule-appointment"),
+
+    # Dashboard charts
+    path("artists/performance/", ArtistPerformanceView.as_view(), name="artist-performance"),
 
     # Notifications
     path("recent-activity/", RecentActivityView.as_view(), name="recent-activity"),

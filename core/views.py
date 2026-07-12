@@ -13,7 +13,7 @@ from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.utils.timezone import now
 from datetime import date, timedelta
 from decimal import Decimal
-from django.db.models import Sum
+from django.db.models import Sum, Count
 from .models import ClientProfile, Service, Appointment, Notifications
 from .serializers import (
     UserSerializer,
@@ -249,6 +249,51 @@ class AppointmentOverviewView(APIView):
         }
 
         return Response(data)
+
+class AppointmentStatsView(APIView):
+    """
+    Returns appointment counts grouped by date for the last 30 days.
+    Shape: [{ "date": "2025-01-01", "appointments": 5 }, ...]
+    Consumed by the admin dashboard AppointmentsChart (line chart).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        start = date.today() - timedelta(days=30)
+        rows = (
+            Appointment.objects.filter(date__gte=start)
+            .values("date")
+            .annotate(appointments=Count("id"))
+            .order_by("date")
+        )
+        data = [
+            {"date": row["date"].isoformat(), "appointments": row["appointments"]}
+            for row in rows
+        ]
+        return Response(data)
+
+
+class ArtistPerformanceView(APIView):
+    """
+    Returns appointment counts grouped by employee (artist).
+    Shape: [{ "artist": "jane", "appointments": 20 }, ...]
+    Consumed by the admin dashboard ArtistPerformanceChart (pie chart).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rows = (
+            Appointment.objects.values("employee__username")
+            .annotate(appointments=Count("id"))
+            .order_by("-appointments")
+        )
+        data = [
+            {"artist": row["employee__username"] or "Unassigned",
+             "appointments": row["appointments"]}
+            for row in rows
+        ]
+        return Response(data)
+
 
 class RescheduleAppointmentView(APIView):
     permission_classes = [IsAuthenticated]
