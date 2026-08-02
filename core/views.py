@@ -175,6 +175,15 @@ class AppointmentListView(ListCreateAPIView):
         user = self.request.user
         archived = self.request.query_params.get("archived")
         employee = self.request.query_params.get("employee")
+        filter_param = self.request.query_params.get("filter")
+
+        def apply_date_filter(queryset):
+            if filter_param == "today":
+                return queryset.filter(date=date.today())
+            if filter_param == "this_week":
+                start_of_week = date.today() - timedelta(days=date.today().weekday())
+                return queryset.filter(date__range=[start_of_week, start_of_week + timedelta(days=6)])
+            return queryset
 
         if user.role == "admin":
             if archived and archived.lower() == "true":
@@ -185,7 +194,7 @@ class AppointmentListView(ListCreateAPIView):
             if employee:
                 qs = qs.filter(employee__id=employee)
 
-            return qs
+            return apply_date_filter(qs)
 
         if user.role == "employee":
             if archived and archived.lower() == "true":
@@ -193,7 +202,7 @@ class AppointmentListView(ListCreateAPIView):
             else:
                 qs = Appointment.objects.filter(employee=user, date__gte=date.today())
 
-            return qs
+            return apply_date_filter(qs)
 
 
     def perform_create(self, serializer):
@@ -359,7 +368,10 @@ class RescheduleAppointmentView(APIView):
                 "notes": data.get("notes", appointment.notes),
                 "status": "confirmed",
                 "requires_approval": False,
-                "client_id": data.get("client_id", appointment.client.id)
+                "client_id": data.get("client_id", appointment.client.id),
+                "deposit_required": data.get("deposit_required", appointment.deposit_required),
+                "deposit_paid": data.get("deposit_paid", appointment.deposit_paid),
+                "deposit_amount": data.get("deposit_amount", appointment.deposit_amount),
             }
         else:
             updated_data = {
@@ -371,7 +383,10 @@ class RescheduleAppointmentView(APIView):
                 "notes": data.get("notes", appointment.notes),
                 "status": "pending",
                 "requires_approval": True,
-                "client_id": data.get("client_id", appointment.client.id)
+                "client_id": data.get("client_id", appointment.client.id),
+                "deposit_required": data.get("deposit_required", appointment.deposit_required),
+                "deposit_paid": data.get("deposit_paid", appointment.deposit_paid),
+                "deposit_amount": data.get("deposit_amount", appointment.deposit_amount),
             }
 
         serializer = AppointmentSerializer(appointment, data=updated_data, partial=True)
@@ -618,6 +633,7 @@ class BillingSummaryView(APIView):
 
             employee_data = {
                 "employee_id": employee_id,
+                "employee_name": employee_appts.first().employee.get_full_name() or employee_appts.first().employee.username,
                 "total_earned": float(employee_total),
                 "shop_fee": float(fee_amount),
                 "net_payout": float(total_employee_revenue),

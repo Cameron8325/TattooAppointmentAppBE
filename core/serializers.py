@@ -17,6 +17,9 @@ class UserSerializer(serializers.ModelSerializer):
             username=validated_data["username"],
             password=validated_data["password"],
             email=validated_data.get("email", ""),
+            first_name=validated_data.get("first_name", ""),
+            last_name=validated_data.get("last_name", ""),
+            role=validated_data.get("role", "employee"),
         )
         return user
 
@@ -26,6 +29,9 @@ class UserSerializer(serializers.ModelSerializer):
         """
         instance.username = validated_data.get("username", instance.username)
         instance.email = validated_data.get("email", instance.email)
+        instance.first_name = validated_data.get("first_name", instance.first_name)
+        instance.last_name = validated_data.get("last_name", instance.last_name)
+        instance.role = validated_data.get("role", instance.role)
 
         if "password" in validated_data:
             instance.set_password(validated_data["password"])
@@ -40,7 +46,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "full_name", "email", "password", "role"]
+        fields = ["id", "username", "first_name", "last_name", "full_name", "email", "password", "role"]
 
 
 # Client Profile Serializer
@@ -49,10 +55,16 @@ class ClientProfileSerializer(serializers.ModelSerializer):
     Serializer for ClientProfile model.
     """
     employee = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    employee_name = serializers.SerializerMethodField()
+
+    def get_employee_name(self, obj):
+        if not obj.employee:
+            return "Unassigned"
+        return obj.employee.get_full_name() or obj.employee.username
 
     class Meta:
         model = ClientProfile
-        fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'employee']
+        fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'employee', 'employee_name']
 
 # Service Serializer
 class ServiceSerializer(serializers.ModelSerializer):
@@ -144,6 +156,7 @@ class AppointmentOverviewSerializer(serializers.Serializer):
 # Notification Serializer
 class NotificationSerializer(serializers.ModelSerializer):
     appointment_details = serializers.SerializerMethodField()
+    appointment_id = serializers.IntegerField(source="appointment.id", read_only=True)
     employee_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -158,6 +171,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "changes",
             "previous_details",
             "appointment_details",
+            "appointment_id",
         ]
 
     def get_appointment_details(self, obj):

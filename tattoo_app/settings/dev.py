@@ -8,8 +8,16 @@ DEBUG = env.bool("DEBUG", default=True)  # noqa: F405
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])  # noqa: F405
 
 # React dev server
-CORS_ALLOWED_ORIGINS = ["http://localhost:3000"]
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000"]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 # Cross-origin cookies for localhost:3000 -> 127.0.0.1:8000.
 # (Matches previous behavior; browsers exempt localhost from the Secure-flag
