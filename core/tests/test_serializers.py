@@ -1,253 +1,149 @@
-from django.test import TestCase
-from core.models import User, ClientProfile, Service, Appointment, Notifications
-from core.serializers import (
-    UserSerializer,
-    ClientProfileSerializer,
-    ServiceSerializer,
-    AppointmentSerializer,
-    NotificationSerializer
-)
 from datetime import date, time
-from django.utils.timezone import localtime
 
-class UserSerializerTest(TestCase):
-    """
-    Test the UserSerializer to ensure correct serialization and deserialization.
-    """
+from django.test import TestCase
 
+from core.models import Appointment, ClientProfile, Notifications, Service, User
+from core.serializers import (
+    AppointmentSerializer,
+    ClientProfileSerializer,
+    NotificationSerializer,
+    ServiceSerializer,
+    UserSerializer,
+)
+
+
+class SerializerTestBase(TestCase):
     def setUp(self):
-        """
-        Set up a test user for serialization tests.
-        """
-        self.user = User.objects.create_user(username='testuser', password='testpass', is_artist=True)
-
-    def test_user_serialization(self):
-        """
-        Test that the user model serializes correctly.
-        """
-        serializer = UserSerializer(instance=self.user)
-        expected_data = {'id': self.user.id, 'username': 'testuser', 'email': '', 'is_artist': True}
-        self.assertEqual(serializer.data, expected_data)
-
-class ClientProfileSerializerTest(TestCase):
-    """
-    Test the ClientProfileSerializer for correct data handling.
-    """
-
-    def setUp(self):
-        """
-        Set up a test artist and client profile for serialization tests.
-        """
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
-        self.client_profile = ClientProfile.objects.create(
-            first_name='John',
-            last_name='Doe',
-            email='john.doe@example.com',
-            phone='1234567890',
-            artist=self.artist
+        self.employee = User.objects.create_user(
+            username="artistuser",
+            password="testpass123",
+            role="employee",
+            first_name="Ari",
+            last_name="Stone",
         )
-
-    def test_client_profile_serialization(self):
-        """
-        Test that the client profile model serializes correctly.
-        """
-        serializer = ClientProfileSerializer(instance=self.client_profile)
-        expected_data = {
-            'id': self.client_profile.id,
-            'first_name': 'John',
-            'last_name': 'Doe',
-            'email': 'john.doe@example.com',
-            'phone': '1234567890',
-            'artist': self.artist.id,
-        }
-        self.assertEqual(serializer.data, expected_data)
-
-    def test_client_profile_deserialization(self):
-        """
-        Test that client profile data deserializes and validates correctly.
-        """
-        data = {
-            'first_name': 'Jane',
-            'last_name': 'Doe',
-            'email': 'jane.doe@example.com',
-            'phone': '0987654321',
-            'artist': self.artist.id,
-        }
-        serializer = ClientProfileSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
-        client_profile = serializer.save()
-        self.assertEqual(client_profile.artist, self.artist)
-
-class ServiceSerializerTest(TestCase):
-    """
-    Test the ServiceSerializer for correct data handling.
-    """
-
-    def setUp(self):
-        """
-        Set up a test artist for service tests.
-        """
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
-
-    def test_service_serialization(self):
-        """
-        Test that the service model serializes correctly.
-        """
-        service = Service.objects.create(
-            name='Tattoo Design',
-            description='A custom tattoo design.',
-            price=150.00,
-            artist=self.artist
-        )
-        serializer = ServiceSerializer(instance=service)
-        expected_data = {
-            'id': service.id,
-            'name': 'Tattoo Design',
-            'description': 'A custom tattoo design.',
-            'price': '150.00',
-            'artist': self.artist.id,
-        }
-        self.assertEqual(serializer.data, expected_data)
-
-    def test_service_deserialization(self):
-        """
-        Test that service data deserializes and validates correctly.
-        """
-        data = {
-            'name': 'Piercing',
-            'description': 'Earlobe piercing',
-            'price': '50.00',
-            'artist': self.artist.id,
-        }
-        serializer = ServiceSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
-        service = serializer.save()
-        self.assertEqual(service.artist, self.artist)
-
-class AppointmentSerializerTest(TestCase):
-    """
-    Test the AppointmentSerializer for correct data handling.
-    """
-
-    def setUp(self):
-        """
-        Set up test data for appointment tests.
-        """
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
         self.client_profile = ClientProfile.objects.create(
-            first_name='John',
-            last_name='Doe',
-            email='john.doe@example.com',
-            phone='1234567890',
-            artist=self.artist
+            first_name="John",
+            last_name="Doe",
+            email="john.doe@example.com",
+            phone="1234567890",
+            employee=self.employee,
         )
         self.service = Service.objects.create(
-            name='Tattoo Design',
-            description='A custom tattoo design.',
-            price=150.00,
-            artist=self.artist
+            name="service_1",
+            description="A custom tattoo design.",
+            price="150.00",
         )
 
-    def test_appointment_serialization(self):
-        """
-        Test that the appointment model serializes correctly.
-        """
-        appointment = Appointment.objects.create(
-            client=self.client_profile,
-            artist=self.artist,
-            service=self.service,
-            date=date(2025, 1, 25),
-            time=time(14, 0),
-            status='pending',
-            notes='Forearm tattoo.'
-        )
-        serializer = AppointmentSerializer(instance=appointment)
-        expected_data = {
-            'id': appointment.id,
-            'client': self.client_profile.id,
-            'artist': self.artist.id,
-            'service': self.service.id,
-            'date': str(appointment.date),
-            'time': str(appointment.time),
-            'status': 'pending',
-            'notes': 'Forearm tattoo.',
+    def appointment_payload(self, **overrides):
+        payload = {
+            "client_id": self.client_profile.id,
+            "employee": self.employee.id,
+            "service": self.service.name,
+            "date": "2026-08-25",
+            "time": "14:00:00",
+            "end_time": "15:00:00",
+            "price": "150.00",
+            "status": "pending",
         }
-        self.assertEqual(serializer.data, expected_data)
+        payload.update(overrides)
+        return payload
 
-    def test_appointment_deserialization(self):
-        """
-        Test that appointment data deserializes and validates correctly.
-        """
-        data = {
-            'client': self.client_profile.id,
-            'artist': self.artist.id,
-            'service': self.service.id,
-            'date': '2025-02-15',
-            'time': '16:00:00',
-            'status': 'confirmed',
-            'notes': 'Leg tattoo.',
-        }
-        serializer = AppointmentSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
+
+class UserSerializerTest(SerializerTestBase):
+    def test_user_serialization(self):
+        data = UserSerializer(self.employee).data
+        self.assertEqual(data["username"], "artistuser")
+        self.assertEqual(data["full_name"], "Ari Stone")
+        self.assertEqual(data["role"], "employee")
+        self.assertNotIn("password", data)
+
+
+class ClientProfileSerializerTest(SerializerTestBase):
+    def test_client_profile_round_trip(self):
+        data = ClientProfileSerializer(self.client_profile).data
+        self.assertEqual(data["employee"], self.employee.id)
+        self.assertEqual(data["employee_name"], "Ari Stone")
+
+        serializer = ClientProfileSerializer(
+            data={
+                "first_name": "Jane",
+                "last_name": "Doe",
+                "email": "jane.doe@example.com",
+                "phone": "0987654321",
+                "employee": self.employee.id,
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.save().employee, self.employee)
+
+
+class ServiceSerializerTest(SerializerTestBase):
+    def test_service_serialization(self):
+        data = ServiceSerializer(self.service).data
+        self.assertEqual(data["name"], "service_1")
+        self.assertEqual(data["name_display"], "Service 1")
+        self.assertEqual(data["price"], "150.00")
+
+    def test_service_rejects_negative_price(self):
+        serializer = ServiceSerializer(
+            data={"name": "service_2", "description": "Test", "price": "-1.00"}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("price", serializer.errors)
+
+
+class AppointmentSerializerTest(SerializerTestBase):
+    def test_appointment_serialization_and_deserialization(self):
+        serializer = AppointmentSerializer(data=self.appointment_payload())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
         appointment = serializer.save()
-        self.assertEqual(appointment.artist, self.artist)
+        data = AppointmentSerializer(appointment).data
+        self.assertEqual(data["client"]["id"], self.client_profile.id)
+        self.assertEqual(data["employee"], self.employee.id)
+        self.assertEqual(data["service"], "service_1")
+        self.assertEqual(data["date"], "2026-08-25")
 
-class NotificationSerializerTest(TestCase):
-    """
-    Test the NotificationSerializer to ensure correct serialization and deserialization.
-    """
-
-    def setUp(self):
-        """
-        Set up test data for notification tests.
-        """
-        self.employee = User.objects.create_user(
-            username='testemployee', password='testpass', is_artist=False
+    def test_rejects_end_time_before_start(self):
+        serializer = AppointmentSerializer(
+            data=self.appointment_payload(time="15:00:00", end_time="14:00:00")
         )
-        self.notification = Notifications.objects.create(
-            employee=self.employee,
-            action='Requested schedule change',
-            status='pending'
-        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("end_time", serializer.errors)
 
+    def test_rejects_negative_price(self):
+        serializer = AppointmentSerializer(data=self.appointment_payload(price="-1.00"))
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("price", serializer.errors)
+
+    def test_rejects_deposit_above_price(self):
+        serializer = AppointmentSerializer(
+            data=self.appointment_payload(
+                deposit_required=True,
+                deposit_amount="151.00",
+            )
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("deposit_amount", serializer.errors)
+
+
+class NotificationSerializerTest(SerializerTestBase):
     def test_notification_serialization(self):
-        """Test that the notification model serializes correctly."""
-        serializer = NotificationSerializer(instance=self.notification)
-        expected_data = {
-            'id': self.notification.id,
-            'employee': self.employee.id,
-            'action': 'Requested schedule change',
-            'timestamp': localtime(self.notification.timestamp).isoformat(),  # Normalize to Eastern Time
-            'status': 'pending',
-        }
-        self.assertEqual(serializer.data, expected_data)
-
-
-    def test_notification_deserialization(self):
-        """
-        Test that notification data deserializes and validates correctly.
-        """
-        data = {
-            'employee': self.employee.id,
-            'action': 'Approved schedule change',
-            'status': 'approved',
-        }
-        serializer = NotificationSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
-        notification = serializer.save()
-        self.assertEqual(notification.action, 'Approved schedule change')
-        self.assertEqual(notification.status, 'approved')
-        self.assertEqual(notification.employee, self.employee)
+        notification = Notifications.objects.create(
+            employee=self.employee,
+            action="created",
+        )
+        data = NotificationSerializer(notification).data
+        self.assertEqual(data["employee"], self.employee.id)
+        self.assertEqual(data["employee_name"], "Ari Stone")
+        self.assertEqual(data["status"], "pending")
 
     def test_invalid_status(self):
-        """
-        Test that invalid status raises a validation error.
-        """
-        data = {
-            'employee': self.employee.id,
-            'action': 'Invalid action',
-            'status': 'invalid_status',  # Invalid status
-        }
-        serializer = NotificationSerializer(data=data)
+        serializer = NotificationSerializer(
+            data={
+                "employee": self.employee.id,
+                "action": "created",
+                "status": "invalid_status",
+            }
+        )
         self.assertFalse(serializer.is_valid())
-        self.assertIn('status', serializer.errors)
+        self.assertIn("status", serializer.errors)

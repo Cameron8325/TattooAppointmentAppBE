@@ -1,189 +1,195 @@
+from datetime import date, time, timedelta
+
 from django.test import TestCase
 from django.urls import reverse
-from rest_framework.test import APIClient
 from rest_framework import status
-from core.models import User, ClientProfile, Service, Appointment, Notifications
-from datetime import date, time
+from rest_framework.test import APIClient
+
+from core.models import Appointment, ClientProfile, Notifications, Service, User
 
 
-class UserViewTest(TestCase):
-
+class ViewTestBase(TestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
-
-    def test_user_list_view(self):
-        """Test the user list view returns a list of users."""
-        self.client.force_authenticate(user=self.artist)
-        response = self.client.get(reverse('user-list'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['username'], 'artistuser')
-
-    def test_user_detail_view(self):
-        """Test the user detail view returns the correct user."""
-        self.client.force_authenticate(user=self.artist)
-        url = reverse('user-detail', kwargs={'pk': self.artist.id})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['username'], 'artistuser')
-
-
-class ClientProfileViewTest(TestCase):
-
-    def setUp(self):
-        self.client = APIClient()
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
-        self.client_profile = ClientProfile.objects.create(
-            first_name='John',
-            last_name='Doe',
-            email='john.doe@example.com',
-            phone='1234567890',
-            artist=self.artist
+        self.api = APIClient()
+        self.admin = User.objects.create_user(
+            username="admin",
+            password="adminpass123",
+            role="admin",
         )
-
-    def test_client_profile_list_view(self):
-        """Test the client profile list view returns all client profiles."""
-        self.client.force_authenticate(user=self.artist)
-        response = self.client.get(reverse('clientprofile-list'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['first_name'], 'John')
-
-    def test_client_profile_detail_view(self):
-        """Test the client profile detail view returns the correct profile."""
-        self.client.force_authenticate(user=self.artist)
-        url = reverse('clientprofile-detail', kwargs={'pk': self.client_profile.id})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['first_name'], 'John')
-
-
-class ServiceViewTest(TestCase):
-
-    def setUp(self):
-        self.client = APIClient()
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
-        self.service = Service.objects.create(
-            name='Tattoo Design',
-            description='A custom tattoo design.',
-            price=150.00,
-            artist=self.artist
+        self.employee = User.objects.create_user(
+            username="artistuser",
+            password="testpass123",
+            role="employee",
+            first_name="Ari",
+            last_name="Stone",
         )
-
-    def test_service_list_view(self):
-        """Test the service list view returns all services."""
-        self.client.force_authenticate(user=self.artist)
-        response = self.client.get(reverse('service-list'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['name'], 'Tattoo Design')
-
-    def test_service_detail_view(self):
-        """Test the service detail view returns the correct service."""
-        self.client.force_authenticate(user=self.artist)
-        url = reverse('service-detail', kwargs={'pk': self.service.id})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], 'Tattoo Design')
-
-
-class AppointmentViewTest(TestCase):
-
-    def setUp(self):
-        self.client = APIClient()
-        self.artist = User.objects.create_user(username='artistuser', password='testpass', is_artist=True)
+        self.other_employee = User.objects.create_user(
+            username="otherartist",
+            password="testpass123",
+            role="employee",
+        )
         self.client_profile = ClientProfile.objects.create(
-            first_name='John',
-            last_name='Doe',
-            email='john.doe@example.com',
-            phone='1234567890',
-            artist=self.artist
+            first_name="John",
+            last_name="Doe",
+            email="john.doe@example.com",
+            phone="1234567890",
+            employee=self.employee,
         )
         self.service = Service.objects.create(
-            name='Tattoo Design',
-            description='A custom tattoo design.',
-            price=150.00,
-            artist=self.artist
+            name="service_1",
+            description="A custom tattoo design.",
+            price="150.00",
         )
         self.appointment = Appointment.objects.create(
             client=self.client_profile,
-            artist=self.artist,
+            employee=self.employee,
             service=self.service,
-            date=date(2025, 1, 25),
+            date=date.today() + timedelta(days=7),
             time=time(14, 0),
-            status='pending',
-            notes='Forearm tattoo.'
+            end_time=time(15, 0),
+            price="150.00",
+            status="pending",
+            notes="Forearm tattoo.",
         )
 
-    def test_appointment_list_view(self):
-        """Test the appointment list view returns all appointments."""
-        self.client.force_authenticate(user=self.artist)
-        response = self.client.get(reverse('appointment-list'))
+    def appointment_payload(self, **overrides):
+        payload = {
+            "client_id": self.client_profile.id,
+            "employee": self.employee.id,
+            "service": self.service.name,
+            "date": (date.today() + timedelta(days=10)).isoformat(),
+            "time": "16:00:00",
+            "end_time": "17:00:00",
+            "price": "150.00",
+        }
+        payload.update(overrides)
+        return payload
+
+
+class UserViewTest(ViewTestBase):
+    def test_admin_can_list_users(self):
+        self.api.force_authenticate(user=self.admin)
+        response = self.api.get(reverse("user-list"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['status'], 'pending')
+        self.assertEqual(len(response.data), 3)
 
-    def test_appointment_detail_view(self):
-        """Test the appointment detail view returns the correct appointment."""
-        self.client.force_authenticate(user=self.artist)
-        url = reverse('appointment-detail', kwargs={'pk': self.appointment.id})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['notes'], 'Forearm tattoo.')
-
-class NotificationViewTest(TestCase):
-    def setUp(self):
-        self.client = APIClient()
-
-        # Create an admin user and authenticate
-        self.admin_user = User.objects.create_superuser(
-            username='admin', password='adminpass', is_artist=False
+    def test_employee_can_retrieve_self(self):
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.get(
+            reverse("user-detail", kwargs={"pk": self.employee.id})
         )
-        self.client.login(username='admin', password='adminpass')
-
-        # Create test notifications
-        self.notification1 = Notifications.objects.create(
-            employee=self.admin_user,
-            action="Requested schedule change",
-            status="pending"
-        )
-        self.notification2 = Notifications.objects.create(
-            employee=self.admin_user,
-            action="Canceled appointment",
-            status="pending"
-        )
-
-    def test_recent_activity_view(self):
-        """Test fetching recent notifications."""
-        response = self.client.get('/api/recent-activity/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
-        self.assertEqual(response.data[0]['action'], "Requested schedule change")
+        self.assertEqual(response.data["username"], "artistuser")
 
-    def test_approve_notification_view(self):
-        """Test approving a notification."""
-        response = self.client.post(f'/api/recent-activity/{self.notification1.id}/approve/')
+
+class ClientProfileViewTest(ViewTestBase):
+    def test_client_profile_list_and_detail(self):
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.get(reverse("clientprofile-list"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.notification1.refresh_from_db()
-        self.assertEqual(self.notification1.status, "approved")
+        self.assertEqual(response.data[0]["first_name"], "John")
 
-    def test_decline_notification_view(self):
-        """Test declining a notification."""
-        response = self.client.post(f'/api/recent-activity/{self.notification2.id}/decline/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.notification2.refresh_from_db()
-        self.assertEqual(self.notification2.status, "denied")
-
-    def test_unauthorized_access(self):
-        """Test that non-admin users cannot access the views."""
-        non_admin_user = User.objects.create_user(
-            username='testuser', password='testpass', is_artist=False
+        response = self.api.get(
+            reverse("clientprofile-detail", kwargs={"pk": self.client_profile.id})
         )
-        self.client.login(username='testuser', password='testpass')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["employee"], self.employee.id)
 
-        response = self.client.get('/api/recent-activity/')
+
+class ServiceViewTest(ViewTestBase):
+    def test_employee_can_read_but_not_edit_services(self):
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.get(reverse("service-list"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.api.patch(
+            reverse("service-detail", kwargs={"pk": self.service.id}),
+            {"price": "200.00"},
+        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        response = self.client.post(f'/api/recent-activity/{self.notification1.id}/approve/')
+
+class AppointmentViewTest(ViewTestBase):
+    def test_employee_only_lists_own_appointments(self):
+        Appointment.objects.create(
+            client=self.client_profile,
+            employee=self.other_employee,
+            service=self.service,
+            date=date.today() + timedelta(days=8),
+            time=time(10, 0),
+            end_time=time(11, 0),
+            price="100.00",
+        )
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.get(reverse("appointment-list"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in response.data], [self.appointment.id])
+
+    def test_employee_creation_is_forced_to_self_and_pending(self):
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.post(
+            reverse("appointment-list"),
+            self.appointment_payload(
+                employee=self.other_employee.id,
+                status="confirmed",
+                requires_approval=False,
+            ),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        created = Appointment.objects.get(pk=response.data["id"])
+        self.assertEqual(created.employee, self.employee)
+        self.assertEqual(created.status, "pending")
+        self.assertTrue(created.requires_approval)
+
+    def test_rejects_negative_price(self):
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.post(
+            reverse("appointment-list"),
+            self.appointment_payload(price="-1.00"),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("price", response.data)
+
+    def test_other_employee_cannot_retrieve_or_reschedule(self):
+        self.api.force_authenticate(user=self.other_employee)
+        detail = self.api.get(
+            reverse("appointment-detail", kwargs={"pk": self.appointment.id})
+        )
+        self.assertEqual(detail.status_code, status.HTTP_404_NOT_FOUND)
+
+        reschedule = self.api.patch(
+            reverse("reschedule-appointment", kwargs={"pk": self.appointment.id}),
+            {"time": "17:00:00", "end_time": "18:00:00"},
+        )
+        self.assertEqual(reschedule.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class NotificationViewTest(ViewTestBase):
+    def setUp(self):
+        super().setUp()
+        self.notification = Notifications.objects.create(
+            employee=self.employee,
+            appointment=self.appointment,
+            action="created",
+            status="pending",
+        )
+
+    def test_admin_can_review_and_approve_notification(self):
+        self.api.force_authenticate(user=self.admin)
+        response = self.api.get(reverse("recent-activity"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["id"], self.notification.id)
+
+        response = self.api.post(
+            reverse("approve-notification", kwargs={"pk": self.notification.id})
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.notification.refresh_from_db()
+        self.assertEqual(self.notification.status, "approved")
+
+    def test_employee_cannot_approve_notifications(self):
+        self.api.force_authenticate(user=self.employee)
+        response = self.api.post(
+            reverse("approve-notification", kwargs={"pk": self.notification.id})
+        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

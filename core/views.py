@@ -2,8 +2,8 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListAPIView, ListCreateAPIView, RetrieveUpdateDestroyAPIView
-from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
-from .permissions import IsAdmin, IsOwnerOrAdmin, user_is_admin
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from .permissions import IsAdmin, IsAdminOrReadOnly, IsOwnerOrAdmin, user_is_admin
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -46,12 +46,9 @@ class LoginView(APIView):
         username = request.data.get("username")
         password = request.data.get("password")
 
-        print(f"🚀 Attempting login for: {username}")  # Debugging print
-
         user = authenticate(username=username, password=password)
 
         if user:
-            print(f"✅ Authentication successful for: {username}")  # Debugging print
             login(request, user)
             response = Response({
                 "message": "Login successful",
@@ -60,7 +57,6 @@ class LoginView(APIView):
             response.set_cookie("csrftoken", get_token(request), httponly=False)  # Ensure CSRF token is set
             return response
 
-        print(f"❌ Authentication failed for: {username}")  # Debugging print
         return Response({"error": "Invalid Credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
 class CSRFTokenView(APIView):
@@ -156,7 +152,7 @@ class ServiceListView(ListCreateAPIView):
     """
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReadOnly]
 
 class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     """
@@ -164,7 +160,7 @@ class ServiceDetailView(RetrieveUpdateDestroyAPIView):
     """
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReadOnly]
 
 class AppointmentListView(ListCreateAPIView):
     queryset = Appointment.objects.all()
@@ -206,7 +202,14 @@ class AppointmentListView(ListCreateAPIView):
 
 
     def perform_create(self, serializer):
-        appointment = serializer.save()
+        if self.request.user.role == "admin":
+            appointment = serializer.save()
+        else:
+            appointment = serializer.save(
+                employee=self.request.user,
+                status="pending",
+                requires_approval=True,
+            )
         # Only create a notification if the request comes from an employee (non-admin)
         if self.request.user.role != "admin":
             Notifications.objects.create(
@@ -230,7 +233,12 @@ class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
     """
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrAdmin]
+
+    def get_queryset(self):
+        if user_is_admin(self.request.user):
+            return Appointment.objects.all()
+        return Appointment.objects.filter(employee=self.request.user)
 
 class AppointmentOverviewView(APIView):
     """
@@ -308,7 +316,10 @@ class RescheduleAppointmentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
-        appointment = get_object_or_404(Appointment, pk=pk)
+        queryset = Appointment.objects.all()
+        if not user_is_admin(request.user):
+            queryset = queryset.filter(employee=request.user)
+        appointment = get_object_or_404(queryset, pk=pk)
         data = request.data
         user = request.user
 
@@ -441,7 +452,7 @@ class RecentActivityView(ListAPIView):
 
 
 class ApproveNotificationView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdmin]
 
     def post(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
@@ -460,7 +471,7 @@ class ApproveNotificationView(APIView):
 
 
 class DeclineNotificationView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdmin]
 
     def post(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
@@ -496,7 +507,7 @@ class DeclineNotificationView(APIView):
         return Response({"message": "Appointment request denied."}, status=200)
 
 class DeleteNotificationView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdmin]
 
     def delete(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
@@ -531,6 +542,8 @@ class DeleteNotificationView(APIView):
         return Response({"message": "Notification deleted successfully"}, status=204)
 
 class KeyMetrics(APIView):
+    permission_classes = [IsAdmin]
+
     def get(self, request):
         queryset = Appointment.objects.filter(status="completed")
         range_param = request.query_params.get("range")
@@ -570,7 +583,7 @@ class KeyMetrics(APIView):
 
 
 class BillingSummaryView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdmin]
 
     def post(self, request):
         # Extract user-provided inputs

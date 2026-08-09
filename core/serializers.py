@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from decimal import Decimal
 from .models import User, Service, Appointment, ClientProfile, Notifications
 
 # User Serializer
@@ -68,16 +69,16 @@ class ClientProfileSerializer(serializers.ModelSerializer):
 
 # Service Serializer
 class ServiceSerializer(serializers.ModelSerializer):
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+    )
     name_display = serializers.CharField(source='get_name_display', read_only=True)  # ✅ Fix applied
 
     class Meta:
         model = Service
         fields = ['id', 'name', 'name_display', 'description', 'price']
-
-    class Meta:
-        model = Service
-        fields = ['id', 'name', 'name_display', 'description', 'price']
-
 
 # Appointment Serializer
 class AppointmentSerializer(serializers.ModelSerializer):
@@ -93,8 +94,19 @@ class AppointmentSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()  # ✅ Correctly defined
     service = serializers.SlugRelatedField(slug_field="name", queryset=Service.objects.all())
     service_display = serializers.SerializerMethodField()  # ✅ Fixed to use SerializerMethodField
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+    )
     end_time = serializers.TimeField()
+    deposit_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        allow_null=True,
+        required=False,
+    )
 
     class Meta:
         model = Appointment
@@ -121,10 +133,33 @@ class AppointmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"client": "A client is required."})
         
         # Validate that end_time is later than start time
-        start_time = data.get("time")
-        end_time = data.get("end_time")
+        start_time = data.get("time", getattr(self.instance, "time", None))
+        end_time = data.get("end_time", getattr(self.instance, "end_time", None))
         if start_time and end_time and end_time <= start_time:
             raise serializers.ValidationError({"end_time": "End time must be after start time."})
+
+        deposit_required = data.get(
+            "deposit_required",
+            getattr(self.instance, "deposit_required", False),
+        )
+        deposit_paid = data.get(
+            "deposit_paid",
+            getattr(self.instance, "deposit_paid", False),
+        )
+        deposit_amount = data.get(
+            "deposit_amount",
+            getattr(self.instance, "deposit_amount", None),
+        )
+        price = data.get("price", getattr(self.instance, "price", None))
+
+        if not deposit_required and (deposit_paid or deposit_amount is not None):
+            raise serializers.ValidationError(
+                {"deposit_required": "Enable deposits before recording payment details."}
+            )
+        if deposit_amount is not None and price is not None and deposit_amount > price:
+            raise serializers.ValidationError(
+                {"deposit_amount": "Deposit amount cannot exceed the appointment price."}
+            )
         return data
 
     def create(self, validated_data):

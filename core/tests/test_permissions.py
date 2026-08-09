@@ -3,12 +3,8 @@ Permission tests.
 
 Rewritten 2026-07: the previous version targeted a pre-migration-0006 schema
 (is_artist flag, artist FKs, Service.artist) and errored in setUp. Original
-test intents are preserved; tests that document *desired* Phase 3 behavior
-(object-level permissions on services/appointments) are marked
-expectedFailure with TODOs rather than deleted.
+The original permission intents are preserved and now enforced.
 """
-from unittest import expectedFailure
-
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -176,13 +172,8 @@ class UserEndpointPermissionTest(PermissionTestBase):
 
 
 class ObjectOwnershipTest(PermissionTestBase):
-    """
-    Original test intents from the legacy suite. These document DESIRED
-    behavior; the service/appointment views don't enforce object-level
-    permissions yet.
-    """
+    """Service writes are admin-only and appointments are owner-scoped."""
 
-    @expectedFailure  # TODO(Phase 3): apply IsAdminOrReadOnly to ServiceDetailView
     def test_employee_cannot_edit_service(self):
         self.client.force_authenticate(user=self.other_employee)
         response = self.client.put(
@@ -195,11 +186,10 @@ class ObjectOwnershipTest(PermissionTestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @expectedFailure  # TODO(Phase 3): apply IsOwnerOrAdmin to AppointmentDetailView
     def test_appointment_cannot_be_modified_by_other_employee(self):
         self.client.force_authenticate(user=self.other_employee)
         response = self.client.patch(
             reverse("appointment-detail", kwargs={"pk": self.appointment.id}),
             {"status": "completed", "notes": "Hijacked notes."},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

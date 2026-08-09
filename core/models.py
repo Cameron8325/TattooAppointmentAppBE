@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.core.validators import MinValueValidator
+from django.db.models import F, Q
 
 # User model for authentication and employee designation
 class User(AbstractUser):
@@ -35,7 +37,12 @@ class Service(models.Model):
     
     name = models.CharField(max_length=100, choices=SERVICE_CHOICES, unique=True)
     description = models.TextField(blank=True, null=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        validators=[MinValueValidator(0)],
+    )
 
     def __str__(self):
         return self.get_name_display()
@@ -69,7 +76,11 @@ class Appointment(models.Model):
     date = models.DateField(db_index=True)
     time = models.TimeField()           # Start time
     end_time = models.TimeField()       # New field for end time
-    price = models.DecimalField(max_digits=10, decimal_places=2)
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
@@ -78,8 +89,30 @@ class Appointment(models.Model):
     requires_approval = models.BooleanField(default=False)
     deposit_required = models.BooleanField(default=False)
     deposit_paid = models.BooleanField(default=False)
-    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    deposit_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
     notes = models.TextField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(price__gte=0),
+                name="appointment_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(deposit_amount__isnull=True) | Q(deposit_amount__gte=0),
+                name="appointment_deposit_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(end_time__gt=F("time")),
+                name="appointment_end_after_start",
+            ),
+        ]
     
     def save(self, *args, **kwargs):
         if self.requires_approval and self.status != "pending":
