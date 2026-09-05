@@ -2,6 +2,9 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from decimal import Decimal
 from .models import User, Service, Appointment, ClientProfile, Notifications
+from .permissions import user_is_admin
+from .booking_workflow import check_conflicts
+from django.conf import settings
 
 # User Serializer
 class UserSerializer(serializers.ModelSerializer):
@@ -9,6 +12,22 @@ class UserSerializer(serializers.ModelSerializer):
     Serializer for the User model with password hashing.
     """
     password = serializers.CharField(write_only=True, required=True, min_length=8)
+    is_demo_account = serializers.SerializerMethodField()
+
+    def get_is_demo_account(self, obj):
+        return bool(getattr(settings, 'DEMO_MODE', False) and obj.username in settings.DEMO_LOGIN_NAMES)
+
+    def validate(self, data):
+        if self.instance and self.get_is_demo_account(self.instance):
+            if any(key in data and data[key] != getattr(self.instance, key) for key in ('username', 'role', 'password')):
+                raise serializers.ValidationError({'error':'Shared demo sign-in accounts keep their login details. Add a team member to try account changes.'})
+        return data
+
+    def validate_role(self, value):
+        request = self.context.get('request')
+        if self.instance and request and not user_is_admin(request.user) and value != self.instance.role:
+            raise serializers.ValidationError('Only a manager can change account roles.')
+        return value
 
     def create(self, validated_data):
         """
@@ -47,7 +66,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "first_name", "last_name", "full_name", "email", "password", "role"]
+        fields = ["id", "username", "first_name", "last_name", "full_name", "email", "password", "role", "is_demo_account"]
 
 
 # Client Profile Serializer
@@ -124,7 +143,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return obj.service.get_name_display() if obj.service else "N/A"
 
     def validate(self, data):
-        client = data.get("client") if "client" in data else getattr(self.instance, "client", None)
+        client = data.get("client") if "client" in data or "new_client" in data else getattr(self.instance, "client", None)
         new_client = data.get("new_client") if "new_client" in data else None
 
         if client and new_client:
@@ -160,6 +179,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"deposit_amount": "Deposit amount cannot exceed the appointment price."}
             )
+        check_conflicts(data, self.instance)
         return data
 
     def create(self, validated_data):
@@ -177,6 +197,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         validated_data["client"] = validated_data.get("client", instance.client)
+        new_client = validated_data.pop('new_client', None)
+        if new_client:
+            validated_data['client'] = ClientProfile.objects.create(**new_client)
         return super().update(instance, validated_data)
 
 
@@ -228,6 +251,9 @@ class NotificationSerializer(serializers.ModelSerializer):
             "time": t1,
             "end_time": t2,
             "notes": obj.appointment.notes or "",
+            "deposit_required": obj.appointment.deposit_required,
+            "deposit_paid": obj.appointment.deposit_paid,
+            "deposit_amount": str(obj.appointment.deposit_amount) if obj.appointment.deposit_amount is not None else None,
         }
 
     def get_employee_name(self, obj):

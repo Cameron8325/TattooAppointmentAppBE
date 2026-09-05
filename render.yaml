@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: imaginarium-demo-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-demo.txt
+    startCommand: python -m tattoo_app.demo_startup && gunicorn tattoo_app.wsgi:application --workers 1 --threads 1 --bind 0.0.0.0:$PORT --timeout 120
+    healthCheckPath: /health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: DJANGO_SETTINGS_MODULE
+        value: tattoo_app.settings.demo
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false

@@ -10,9 +10,12 @@ from django.utils.decorators import method_decorator
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.middleware.csrf import get_token
 from django.contrib.auth import authenticate, login, logout, get_user_model
-from django.utils.timezone import now
+from django.utils.timezone import now, localdate
+from django.db import transaction
+from django.conf import settings
+from .booking_workflow import lock_artists, update_booking, review_booking
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum, Count
 from .models import ClientProfile, Service, Appointment, Notifications
 from .serializers import (
@@ -105,6 +108,12 @@ class UserListView(ListCreateAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAdmin]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        role = self.request.query_params.get('role')
+        return queryset.filter(role=role) if role in ('admin', 'employee') else queryset
+
+
 class UserDetailView(RetrieveUpdateDestroyAPIView):
     """
     Retrieve/update: the user themselves or an admin.
@@ -117,6 +126,10 @@ class UserDetailView(RetrieveUpdateDestroyAPIView):
     def delete(self, request, *args, **kwargs):
         if not user_is_admin(request.user):
             raise PermissionDenied("Administrator access required to delete users.")
+        if self.get_object().pk == request.user.pk:
+            raise ValidationError({'error': 'You cannot delete the account you are signed in with.'})
+        if getattr(settings, 'DEMO_MODE', False) and self.get_object().username in settings.DEMO_LOGIN_NAMES:
+            raise ValidationError({'error':'Shared demo sign-in accounts cannot be deleted.'})
         return super().delete(request, *args, **kwargs)
 
 # 🔹 Client Profile Views
@@ -168,38 +181,42 @@ class AppointmentListView(ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        archived = self.request.query_params.get("archived")
-        employee = self.request.query_params.get("employee")
-        filter_param = self.request.query_params.get("filter")
+        params = self.request.query_params
+        queryset = Appointment.objects.all()
+        if not user_is_admin(self.request.user):
+            queryset = queryset.filter(employee=self.request.user)
+        elif params.get('employee'):
+            queryset = queryset.filter(employee_id=params['employee'])
+        start, end = params.get('start_date'), params.get('end_date')
+        if start or end:
+            try:
+                start, end = date.fromisoformat(start), date.fromisoformat(end)
+            except (TypeError, ValueError):
+                raise ValidationError({'date': 'Provide both start_date and end_date as YYYY-MM-DD.'})
+            if start > end:
+                raise ValidationError({'date': 'Start date must not be after end date.'})
+            queryset = queryset.filter(date__range=(start, end))
+        elif params.get('archived', '').lower() == 'true':
+            queryset = queryset.filter(date__lt=localdate())
+        else:
+            queryset = queryset.filter(date__gte=localdate())
+        if params.get('filter') == 'today':
+            queryset = queryset.filter(date=localdate())
+        elif params.get('filter') == 'this_week':
+            start = localdate() - timedelta(days=localdate().weekday())
+            queryset = queryset.filter(date__range=(start, start + timedelta(days=6)))
+        return queryset.order_by('date', 'time', 'pk')
 
-        def apply_date_filter(queryset):
-            if filter_param == "today":
-                return queryset.filter(date=date.today())
-            if filter_param == "this_week":
-                start_of_week = date.today() - timedelta(days=date.today().weekday())
-                return queryset.filter(date__range=[start_of_week, start_of_week + timedelta(days=6)])
-            return queryset
-
-        if user.role == "admin":
-            if archived and archived.lower() == "true":
-                qs = Appointment.objects.filter(date__lt=date.today())
-            else:
-                qs = Appointment.objects.filter(date__gte=date.today())
-
-            if employee:
-                qs = qs.filter(employee__id=employee)
-
-            return apply_date_filter(qs)
-
-        if user.role == "employee":
-            if archived and archived.lower() == "true":
-                qs = Appointment.objects.filter(employee=user, date__lt=date.today())
-            else:
-                qs = Appointment.objects.filter(employee=user, date__gte=date.today())
-
-            return apply_date_filter(qs)
-
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        if not user_is_admin(request.user):
+            data.update(employee=request.user.pk, status='pending', requires_approval=True)
+        lock_artists(data.get('employee'))
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
         if self.request.user.role == "admin":
@@ -235,6 +252,9 @@ class AppointmentDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = AppointmentSerializer
     permission_classes = [IsOwnerOrAdmin]
 
+    def update(self, request, *args, **kwargs):
+        return Response(update_booking(request, kwargs['pk']))
+
     def get_queryset(self):
         if user_is_admin(self.request.user):
             return Appointment.objects.all()
@@ -259,6 +279,7 @@ class AppointmentOverviewView(APIView):
 
         data = {
             "total": queryset.count(),
+            "confirmed": queryset.filter(status="confirmed").count(),
             "completed": queryset.filter(status="completed").count(),
             "pending": queryset.filter(status="pending").count(),
             "canceled": queryset.filter(status="canceled").count(),
@@ -316,122 +337,7 @@ class RescheduleAppointmentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
-        queryset = Appointment.objects.all()
-        if not user_is_admin(request.user):
-            queryset = queryset.filter(employee=request.user)
-        appointment = get_object_or_404(queryset, pk=pk)
-        data = request.data
-        user = request.user
-
-        # Handle direct status change (e.g., to "completed" or "no_show")
-        new_status = data.get("status")
-        if new_status in ["completed", "no_show"]:
-            previous_status = appointment.status
-            appointment.status = new_status
-            appointment.requires_approval = False
-            appointment.save()
-
-            if new_status == "no_show":
-                Notifications.objects.create(
-                    employee=user,
-                    appointment=appointment,
-                    action="no_show",
-                    changes={"status": {"old": previous_status, "new": "no_show"}},
-                    status="pending"
-                )
-
-            return Response({"message": f"Appointment marked as {new_status}."}, status=status.HTTP_200_OK)
-
-        # Capture snapshot of existing values
-        previous_data = {
-            "date": str(appointment.date),
-            "time": str(appointment.time),
-            "end_time": str(appointment.end_time),
-            "price": str(appointment.price),
-            "service": appointment.service.name,
-            "notes": appointment.notes,
-        }
-
-        # Get the new values (fallback to current)
-        new_data = {
-            "date": data.get("date", str(appointment.date)),
-            "time": data.get("time", str(appointment.time)),
-            "end_time": data.get("end_time", str(appointment.end_time)),
-            "price": data.get("price", str(appointment.price)),
-            "service": data.get("service", appointment.service.name),
-            "notes": data.get("notes", appointment.notes),
-        }
-
-        # Compute changes for diff
-        diff = {}
-        for key in previous_data:
-            if previous_data[key] != new_data[key]:
-                diff[key] = {"old": previous_data[key], "new": new_data[key]}
-
-        # ✅ Different logic for Admin vs Employee
-        if user.role == "admin":
-            updated_data = {
-                "date": data.get("date", appointment.date),
-                "time": data.get("time", appointment.time),
-                "end_time": data.get("end_time", appointment.end_time),
-                "price": data.get("price", appointment.price),
-                "service": data.get("service", appointment.service.name),
-                "notes": data.get("notes", appointment.notes),
-                "status": "confirmed",
-                "requires_approval": False,
-                "client_id": data.get("client_id", appointment.client.id),
-                "deposit_required": data.get("deposit_required", appointment.deposit_required),
-                "deposit_paid": data.get("deposit_paid", appointment.deposit_paid),
-                "deposit_amount": data.get("deposit_amount", appointment.deposit_amount),
-            }
-        else:
-            updated_data = {
-                "date": data.get("date", appointment.date),
-                "time": data.get("time", appointment.time),
-                "end_time": data.get("end_time", appointment.end_time),
-                "price": data.get("price", appointment.price),
-                "service": data.get("service", appointment.service.name),
-                "notes": data.get("notes", appointment.notes),
-                "status": "pending",
-                "requires_approval": True,
-                "client_id": data.get("client_id", appointment.client.id),
-                "deposit_required": data.get("deposit_required", appointment.deposit_required),
-                "deposit_paid": data.get("deposit_paid", appointment.deposit_paid),
-                "deposit_amount": data.get("deposit_amount", appointment.deposit_amount),
-            }
-
-        serializer = AppointmentSerializer(appointment, data=updated_data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-
-            # 🔔 Create or update notification only if not admin
-            if user.role != "admin":
-                existing_notification = Notifications.objects.filter(
-                    appointment=appointment,
-                    employee=user,
-                    action="updated",
-                    status="pending"
-                ).first()
-
-                if existing_notification:
-                    existing_changes = existing_notification.changes or {}
-                    existing_changes.update(diff)
-                    existing_notification.changes = existing_changes
-                    existing_notification.timestamp = now()
-                    existing_notification.save()
-                else:
-                    Notifications.objects.create(
-                        employee=user,
-                        appointment=appointment,
-                        action="updated",
-                        changes=diff,
-                        previous_details=previous_data,
-                        status="pending"
-                    )
-
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(update_booking(request, pk))
 
 # 🔹 Notification Views
 class RecentActivityView(ListAPIView):
@@ -441,9 +347,7 @@ class RecentActivityView(ListAPIView):
     def get_queryset(self):
         user = self.request.user
 
-        # Auto-delete notifications older than 30 days
-        threshold_date = now() - timedelta(days=30)
-        Notifications.objects.filter(timestamp__lt=threshold_date).delete()
+        # A queue read must not delete pending requests or their rollback details.
 
         if user.role == "admin":
             # Exclude notifications where the employee is the current admin
@@ -455,91 +359,27 @@ class ApproveNotificationView(APIView):
     permission_classes = [IsAdmin]
 
     def post(self, request, pk):
-        notification = get_object_or_404(Notifications, pk=pk)
-
-        if notification.appointment:
-            notification.appointment.status = "confirmed"
-            notification.appointment.requires_approval = False
-            notification.appointment.save()
-
-        # Clear the previous_details snapshot now that the appointment is confirmed.
-        notification.previous_details = None
-        notification.status = "approved"
-        notification.save()
-
-        return Response({"message": "Appointment approved successfully."}, status=200)
+        review_booking(request, pk, approve=True)
+        return Response({'message': 'Appointment approved successfully.'})
 
 
 class DeclineNotificationView(APIView):
     permission_classes = [IsAdmin]
 
     def post(self, request, pk):
-        notification = get_object_or_404(Notifications, pk=pk)
-        if notification.appointment:
-            if notification.previous_details:
-                # Revert appointment to its previous details
-                appointment = notification.appointment
-                pd = notification.previous_details
-                appointment.date = pd.get("date", appointment.date)
-                appointment.time = pd.get("time", appointment.time)
-                appointment.end_time = pd.get("end_time", appointment.end_time)
-                appointment.price = pd.get("price", appointment.price)
-                # Look up the service by its name stored in previous_details
-                service_name = pd.get("service")
-                if service_name:
-                    service_obj = Service.objects.filter(name=service_name).first()
-                    if service_obj:
-                        appointment.service = service_obj
-                appointment.notes = pd.get("notes", appointment.notes)
-                appointment.status = "confirmed"  # Revert to confirmed (or your desired default)
-                appointment.requires_approval = False
-                appointment.save()
-            else:
-                # For new appointments (with no previous details), cancel the appointment
-                appointment = notification.appointment
-                appointment.status = "canceled"
-                appointment.requires_approval = False
-                appointment.save()
-        # Mark the notification as denied
-        notification.status = "denied"
-        notification.save()
+        review_booking(request, pk, approve=False)
+        return Response({'message': 'Appointment request denied.'})
 
-        return Response({"message": "Appointment request denied."}, status=200)
 
 class DeleteNotificationView(APIView):
     permission_classes = [IsAdmin]
 
     def delete(self, request, pk):
         notification = get_object_or_404(Notifications, pk=pk)
-
-        # If it's a change request and has previous details, revert appointment
-        if notification.action == "updated" and notification.previous_details:
-            appointment = notification.appointment
-            prev_details = notification.previous_details
-
-            # Restore previous values
-            appointment.date = prev_details.get("date", appointment.date)
-            appointment.time = prev_details.get("time", appointment.time)
-            appointment.end_time = prev_details.get("end_time", appointment.end_time)
-            appointment.price = prev_details.get("price", appointment.price)
-
-            # Restore service if it was changed
-            service_name = prev_details.get("service")
-            if service_name:
-                service_obj = Service.objects.filter(name=service_name).first()
-                if service_obj:
-                    appointment.service = service_obj
-
-            appointment.notes = prev_details.get("notes", appointment.notes)
-
-            # Reset status since the request is no longer valid
-            appointment.status = "confirmed"
-            appointment.requires_approval = False
-            appointment.save()
-
-        # Delete the notification
+        if notification.status == 'pending':
+            raise ValidationError({'error':'Approve or decline this request before removing its activity entry.'})
         notification.delete()
-        return Response({"message": "Notification deleted successfully"}, status=204)
+        return Response(status=204)
 
 class KeyMetrics(APIView):
     permission_classes = [IsAdmin]
@@ -586,89 +426,60 @@ class BillingSummaryView(APIView):
     permission_classes = [IsAdmin]
 
     def post(self, request):
-        # Extract user-provided inputs
-        start_date = request.data.get("start_date")
-        end_date = request.data.get("end_date")
-        month = request.data.get("month")
-        year = request.data.get("year")
-        fee_type = request.data.get("fee_type")
-        fee_value = request.data.get("fee_value")
-
-        # Validate fee input
-        if not fee_type or fee_value is None:
-            return Response({"error": "Missing fee_type or fee_value."}, status=400)
-
+        data = request.data
+        fee_type = data.get('fee_type')
+        if fee_type not in ('flat', 'percentage'):
+            raise ValidationError({'error':'Choose a flat or percentage studio fee.'})
         try:
-            fee_value = Decimal(str(fee_value))
+            fee_value = Decimal(str(data.get('fee_value')))
         except Exception:
-            return Response({"error": "Fee value must be numeric."}, status=400)
-
-        # Resolve date range
-        if month and year:
-            try:
-                month = int(month)
-                year = int(year)
-                start_date = date(year, month, 1)
-                if month == 12:
-                    end_date = date(year + 1, 1, 1) - timedelta(days=1)
-                else:
-                    end_date = date(year, month + 1, 1) - timedelta(days=1)
-            except ValueError:
-                return Response({"error": "Invalid month or year provided."}, status=400)
-        elif not start_date or not end_date:
-            today = date.today()
-            start_date = date(today.year, today.month, 1)
-            end_date = today
-
-        # Query appointments
-        queryset = Appointment.objects.filter(status="completed", date__range=[start_date, end_date])
-        shop_total_revenue = queryset.aggregate(Sum("price"))['price__sum'] or Decimal('0')
-        shop_total_appointments = queryset.count()
-        shop_total_earnings = Decimal('0')  # Track total shop earnings
-
-        report_data = []
-        employee_ids = queryset.values_list("employee", flat=True).distinct()
-
-        for employee_id in employee_ids:
-            employee_appts = queryset.filter(employee__id=employee_id)
-            employee_total = employee_appts.aggregate(Sum("price"))['price__sum'] or Decimal('0')
-
-            if fee_type == "flat":
-                fee_amount = fee_value * employee_appts.count()
-            elif fee_type == "percentage":
-                fee_amount = employee_total * (fee_value / Decimal('100'))
+            raise ValidationError({'error':'Fee value must be numeric.'})
+        if not fee_value.is_finite() or fee_value < 0:
+            raise ValidationError({'error':'Enter a fee of zero or more.'})
+        if fee_type == 'percentage' and fee_value > 100:
+            raise ValidationError({'error':'The fee percentage must be between 0 and 100.'})
+        try:
+            if data.get('month') is not None or data.get('year') is not None:
+                month, year = int(data.get('month')), int(data.get('year'))
+                start = date(year, month, 1)
+                end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+                end -= timedelta(days=1)
+            elif data.get('start_date') or data.get('end_date'):
+                start, end = date.fromisoformat(data.get('start_date')), date.fromisoformat(data.get('end_date'))
             else:
-                fee_amount = Decimal('0')
+                end = localdate()
+                start = end.replace(day=1)
+        except (TypeError, ValueError, OverflowError):
+            raise ValidationError({'error':'Choose a valid reporting period.'})
+        if start > end:
+            raise ValidationError({'error':'The start date must not be after the end date.'})
 
-            shop_total_earnings += fee_amount  # Add to shop earnings total
-
-            total_employee_revenue = employee_total - fee_amount
-
-            employee_data = {
-                "employee_id": employee_id,
-                "employee_name": employee_appts.first().employee.get_full_name() or employee_appts.first().employee.username,
-                "total_earned": float(employee_total),
-                "shop_fee": float(fee_amount),
-                "net_payout": float(total_employee_revenue),
-                "total_appointments": employee_appts.count(),
-                "appointments": [
-                    {
-                        "client_name": f"{appt.client.first_name} {appt.client.last_name}",
-                        "date": appt.date.strftime("%Y-%m-%d"),
-                        "price": float(appt.price),
-                        "shop_cut": float(fee_value) if fee_type == "flat" else float(appt.price * (fee_value / Decimal('100'))),
-                        "artist_cut": float(appt.price - (fee_value if fee_type == "flat" else appt.price * (fee_value / Decimal('100')))),
-                    }
-                    for appt in employee_appts.order_by("date")
-                ]
-            }
-
-            report_data.append(employee_data)
-
-        # Return the full report with added earnings
-        return Response({
-            "shop_total_revenue": float(shop_total_revenue),
-            "shop_total_appointments": shop_total_appointments,
-            "shop_total_earnings": float(shop_total_earnings),
-            "report": report_data
-        })
+        # One read supplies both detail rows and totals. Round each session fee
+        # to cents before summing so the visible rows reconcile with the report.
+        appointments = list(Appointment.objects.filter(status='completed', date__range=(start, end))
+                            .select_related('employee', 'client').order_by('date', 'pk'))
+        grouped = {}
+        for appointment in appointments:
+            grouped.setdefault(appointment.employee_id, []).append(appointment)
+        report = []
+        shop_earnings = Decimal('0.00')
+        for employee_id, bookings in grouped.items():
+            rows = []
+            for appointment in bookings:
+                cut = fee_value if fee_type == 'flat' else appointment.price * fee_value / Decimal('100')
+                cut = cut.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                rows.append({'client_name':str(appointment.client), 'date':appointment.date.isoformat(),
+                             'price':float(appointment.price), 'shop_cut':float(cut),
+                             'artist_cut':float(appointment.price - cut)})
+            gross = sum((appointment.price for appointment in bookings), Decimal('0.00'))
+            fee = sum((Decimal(str(row['shop_cut'])) for row in rows), Decimal('0.00'))
+            shop_earnings += fee
+            employee = bookings[0].employee
+            report.append({'employee_id':employee_id,
+                           'employee_name':employee.get_full_name() or employee.username,
+                           'total_earned':float(gross), 'shop_fee':float(fee),
+                           'net_payout':float(gross-fee), 'total_appointments':len(bookings),
+                           'appointments':rows})
+        return Response({'shop_total_revenue':float(sum((a.price for a in appointments), Decimal('0.00'))),
+                         'shop_total_appointments':len(appointments),
+                         'shop_total_earnings':float(shop_earnings), 'report':report})
