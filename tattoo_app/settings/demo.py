@@ -8,6 +8,7 @@ os.environ['DATABASE_URL'] = 'sqlite:///' + demo_path.as_posix()
 from .base import *  # noqa: F403,E402
 
 DEMO_MODE = True
+MIDDLEWARE = [*MIDDLEWARE, 'core.middleware.NoStoreMiddleware']  # noqa: F405
 DEMO_LOGIN_NAMES = ('admin', 'mia.torres', 'leo.nakamura', 'ava.bennett')
 DEBUG = False
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
