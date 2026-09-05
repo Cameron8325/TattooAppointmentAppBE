@@ -271,9 +271,9 @@ class AppointmentOverviewView(APIView):
         queryset = Appointment.objects.all()
 
         if filter_param == "today":
-            queryset = queryset.filter(date=date.today())
+            queryset = queryset.filter(date=localdate())
         elif filter_param == "this_week":
-            start_of_week = date.today() - timedelta(days=date.today().weekday())
+            start_of_week = localdate() - timedelta(days=localdate().weekday())
             end_of_week = start_of_week + timedelta(days=6)
             queryset = queryset.filter(date__range=[start_of_week, end_of_week])
 
@@ -297,7 +297,7 @@ class AppointmentStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        start = date.today() - timedelta(days=30)
+        start = localdate() - timedelta(days=30)
         rows = (
             Appointment.objects.filter(date__gte=start)
             .values("date")
@@ -391,10 +391,10 @@ class KeyMetrics(APIView):
 
         # Last 7 or 30 Days Range
         if range_param == "last_7_days":
-            start = date.today() - timedelta(days=7)
+            start = localdate() - timedelta(days=7)
             queryset = queryset.filter(date__gte=start)
         elif range_param == "last_30_days":
-            start = date.today() - timedelta(days=30)
+            start = localdate() - timedelta(days=30)
             queryset = queryset.filter(date__gte=start)
 
         # Specific Month Filter (e.g., 2025-04)

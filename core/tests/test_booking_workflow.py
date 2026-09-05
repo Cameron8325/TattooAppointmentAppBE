@@ -2,6 +2,8 @@ from datetime import timedelta
 from decimal import Decimal
 from django.urls import reverse
 from django.test import override_settings
+from unittest.mock import patch
+from datetime import datetime, timezone
 from django.utils.timezone import localdate, now
 from core.models import Appointment, ClientProfile, Notifications
 from core.tests.test_views import ViewTestBase
@@ -171,3 +173,11 @@ class BookingWorkflowTests(ViewTestBase):
         self.assertTrue(self.api.get(url).data['is_demo_account'])
         self.assertEqual(self.api.patch(url, {'username':'renamed'}, format='json').status_code, 400)
         self.assertEqual(self.api.delete(url).status_code, 400)
+
+    @override_settings(TIME_ZONE='America/New_York')
+    @patch('django.utils.timezone.now', return_value=datetime(2099,1,2,1,0,tzinfo=timezone.utc))
+    def test_today_uses_studio_date_when_utc_is_already_tomorrow(self, clock):
+        self.appointment.date = '2099-01-01'
+        self.appointment.save()
+        result = self.api.get(reverse('appointment-list'), {'filter':'today'})
+        self.assertEqual([row['id'] for row in result.data], [self.appointment.pk])

@@ -14,6 +14,7 @@ from datetime import date, time, timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.utils.timezone import localdate
 
 from core.models import Appointment, ClientProfile, Notifications, Service, User
 
@@ -118,7 +119,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Clients: {len(clients)}")
 
         # --- Appointments ---
-        today = date.today()
+        today = localdate()
         appts = []
         for (ci, ai, svc, offset, start, end, status,
              requires_approval, price, notes) in APPOINTMENTS:
